@@ -4,9 +4,7 @@ Offline, spend-free, no-network smoke for the `PG_ANTI_VERBOSITY` env-flag-gated
 front-loading + information-density section-prompt variant. Proves BOTH halves of
 the task:
   (1) front-loading directive present when the flag is ON, absent when OFF;
-  (2) the length-maximizing language ("match GPT-5.4 / Gemini density",
-      "50-200 citations", the Mechanism "TARGET 20-35 sentences") is REPLACED
-      when ON.
+  (2) both base and front-loaded variants remain free of length/citation tallies.
 
 Default OFF is byte-identical: the selector returns the ORIGINAL template OBJECT
 (identity-equal) so the locked 5-question benchmark is unchanged until the flag is
@@ -31,8 +29,7 @@ from src.polaris_graph.generator.multi_section_generator import (
     _select_section_system_prompt,
 )
 
-# The length-maximizing clauses the finding flags; ON must NOT contain any of
-# these, OFF must still contain them (byte-identical wall).
+# Removed length-maximizing clauses must not return in any active template.
 _LENGTH_BIAS_PHRASES_CLINICAL = (
     "match that depth",
     "50-200 citations",
@@ -48,13 +45,14 @@ _LENGTH_BIAS_PHRASES_FIELD_AGNOSTIC = (
 )
 
 _FRONT_LOAD_LEAD = "FRONT-LOADING (inverted pyramid):"
-_DENSITY_RULE = "Length is earned by distinct facts, not sentence count"
+_DENSITY_RULE = "Write for a reader, not a sentence or citation tally."
 
 
 @pytest.fixture(autouse=True)
 def _clear_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Each test starts with the flag UNSET (default OFF)."""
+    """Each test isolates front-loading from the default-on paragraph variant."""
     monkeypatch.delenv("PG_ANTI_VERBOSITY", raising=False)
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,17 +77,17 @@ def test_off_returns_original_template_object_identity() -> None:
     )
 
 
-def test_off_clinical_template_keeps_length_bias_unchanged() -> None:
+def test_base_clinical_template_drops_length_bias() -> None:
     off = _select_section_system_prompt(False)
     for phrase in _LENGTH_BIAS_PHRASES_CLINICAL:
-        assert phrase in off, f"OFF clinical template lost {phrase!r}"
+        assert phrase not in off
     assert _FRONT_LOAD_LEAD not in off, "OFF must NOT carry the front-load lead"
 
 
-def test_off_field_agnostic_template_keeps_length_bias_unchanged() -> None:
+def test_base_field_agnostic_template_drops_length_bias() -> None:
     off = _select_section_system_prompt(True)
     for phrase in _LENGTH_BIAS_PHRASES_FIELD_AGNOSTIC:
-        assert phrase in off, f"OFF field-agnostic template lost {phrase!r}"
+        assert phrase not in off
     assert _FRONT_LOAD_LEAD not in off
 
 
@@ -106,9 +104,7 @@ def test_on_clinical_variant_front_loads_and_drops_length_bias() -> None:
     # Every length-bias phrase is gone (the REPLACE half of the task).
     for phrase in _LENGTH_BIAS_PHRASES_CLINICAL:
         assert phrase not in on, f"ON clinical variant still contains {phrase!r}"
-    # The multi-source-CITATION behavior (a faithfulness/citation rule, not a
-    # length rule) is preserved — only the length-bias tail was dropped.
-    assert "cite ALL of them" in on
+    assert "cite them together only when every cited span supports that proposition" in on
 
 
 def test_on_field_agnostic_variant_front_loads_and_drops_length_bias() -> None:
@@ -120,8 +116,7 @@ def test_on_field_agnostic_variant_front_loads_and_drops_length_bias() -> None:
         assert phrase not in on, (
             f"ON field-agnostic variant still contains {phrase!r}"
         )
-    # The field-agnostic multi-source citation rule is preserved.
-    assert "cite ALL of them" in on
+    assert "cite them together only when every cited span supports that proposition" in on
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,10 +156,10 @@ def test_concise_clinical_variant_has_no_orphaned_seams() -> None:
     # an orphan after its "TARGET 20-35 ... covering (in" lead was replaced.
     assert "order):" not in concise
     # Rule #10 must close on a period, not a dangling em-dash before the next rule.
-    rule_10_start = concise.find("10. **Multi-source citation")
+    rule_10_start = concise.find("10. When multiple evidence rows")
     rule_11_start = concise.find("11. **Jurisdictional precision", rule_10_start)
     rule_10_body = concise[rule_10_start:rule_11_start].rstrip()
-    assert rule_10_body.endswith("where evidence supports it."), (
+    assert rule_10_body.endswith("supports that proposition."), (
         f"rule #10 did not close cleanly: {rule_10_body[-60:]!r}"
     )
 
@@ -244,11 +239,8 @@ def test_call_section_reads_flag_at_call_time(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_transform_fails_loud_on_missing_required_anchor() -> None:
-    # A template with no "Target 10-18 sentences ..." rule-8 anchor must raise —
-    # so a future template edit cannot silently no-op the anti-verbosity
-    # transform (I-cap-005 import-time-cache / silent-no-op lesson).
     with pytest.raises(RuntimeError, match="anti-verbosity transform anchor"):
-        _build_concise_variant("CRITICAL RULES:\n1. Use ONLY facts.\n")
+        _build_concise_variant("No section contract here.")
 
 
 # ---------- I-ready-014 (#1083) Codex iter-1 P1 (F13-P1-001): no surviving sentence-count bias ----------
@@ -266,6 +258,6 @@ def test_concise_on_prompt_drops_all_mechanism_sentence_count_bias():
         assert "target that matches pool size" not in variant
         assert "15-20 sentences" not in variant
         assert "10-15 sentences" not in variant
-    # but the substance (priority topics + thin-pool honest disclosure) is PRESERVED
-    assert "cover as many of the priority topics" in m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
-    assert "honest disclosure sentence" in m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
+    normalized = " ".join(m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE.split())
+    assert "cover the evidence-supported priority topics" in normalized
+    assert "state the resulting boundary on interpretation" in normalized

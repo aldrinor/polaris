@@ -5,7 +5,7 @@ from typing import Any, Sequence
 
 NARRATIVE_GUIDANCE = (
     "Use cohesive scholarly prose. For adjacent cited findings, explicitly explain with their "
-    "citations why they agree, differ, or condition one another; emphasize the key finding or "
+    "citations why they agree, differ, or alter the interpretation of one another; emphasize the key finding or "
     "term with Markdown bold; describe evidence limitations through publication type, "
     "representativeness, and risk of bias rather than implementation vocabulary."
 )

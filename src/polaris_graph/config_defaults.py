@@ -479,13 +479,12 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_LETHAL_SEED_K': '80',
     'PG_LIMITATIONS_MIN_MAX_TOKENS': '6000',
     'PG_LIMITATIONS_REASONING_MAX_TOKENS': '2048',
-    # Lever 6 (register translation, judge-visible prose): DEFAULT OFF = today's wording verbatim.
-    # 'reader'/on => the Limitations paragraph is written in scholarly register (honest evidence-base
-    # caveat preserved) WITHOUT internal pipeline vocabulary or tier-percentage self-critique.
-    'PG_LIMITATIONS_REGISTER': '',
+    # Reader-facing evidence-base limitations are the production default. ``pipeline`` retains the
+    # diagnostic register for internal inspection without exposing it in ordinary reports.
+    'PG_LIMITATIONS_REGISTER': 'reader',
     # 'reader'/on => the report preamble drops the internal "span-grounded / removed rather than
     # paraphrased" narration and states only the organizational map. Faithfulness behaviour unchanged.
-    'PG_REPORT_PREAMBLE_REGISTER': '',
+    'PG_REPORT_PREAMBLE_REGISTER': 'reader',
     'PG_LIVE_CONTENT_MAX': '300000',
     'PG_LIVE_FETCH_CAP': '200',
     'PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR': '0.5',
@@ -864,13 +863,13 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # [ev_XXX]-marker-per-unit citation contract. Improves rendered-prose structure. Prompt-text change
     # only (strict_verify untouched). Default '' = off => flat-prose rule 7 => byte-identical.
     'PG_SECTION_STRUCTURE': '',
-    # LEVER 1 (structure-preserving render). When ON: (a) the section writer's rule 7 flips from
+    # LEVER 1 (structure-preserving render). Production defaults ON: (a) the section writer's rule 7 flips from
     # flat-paragraph-only to "organize the body into paragraphs of 3-6 sentences separated by a blank
     # line" (paragraphs ONLY — no headings/tables/bullets, avoiding the PG_SECTION_STRUCTURE prompt
     # conflict), and (b) the resolver preserves those blank-line breaks instead of flattening the
     # section to one blob. Render + prompt text only (strict_verify untouched). If PG_SECTION_STRUCTURE
-    # is also ON it wins (structure variant supersedes). Default '' = off => flat render => byte-identical.
-    'PG_RENDER_BLOCKS': '',
+    # is also ON it wins (structure variant supersedes). An explicit false token keeps the diagnostic flat path.
+    'PG_RENDER_BLOCKS': '1',
     # Compatibility state for the retired generate-then-validate matrix.  The section
     # assembly no longer calls that path; PG_SYNTHESIS_TABLE_CONSTRUCT is the only
     # executable synthesis-table producer.

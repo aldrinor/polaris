@@ -31,3 +31,15 @@ def test_required_title_ordering_keeps_residual_and_every_other_section():
     ]
     rendered = _sections_for_render(sections, ["First", "Second"])
     assert [section.title for section in rendered] == ["First", "Second", "Residual"]
+
+
+def test_conclusion_is_always_the_final_rendered_section():
+    sections = [
+        SimpleNamespace(title="Conclusion", verified_text="Close [1].", dropped_due_to_failure=False),
+        SimpleNamespace(title="Body", verified_text="Body [2].", dropped_due_to_failure=False),
+        SimpleNamespace(title="Limitations", verified_text="Limits.", dropped_due_to_failure=False),
+    ]
+
+    rendered = _sections_for_render(sections, ["Conclusion", "Body"])
+
+    assert [section.title for section in rendered] == ["Body", "Limitations", "Conclusion"]

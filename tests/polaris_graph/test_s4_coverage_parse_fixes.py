@@ -132,7 +132,7 @@ def test_router_singleton_leg_routes_and_deletes(monkeypatch: pytest.MonkeyPatch
     assert all("e_off" not in p.ev_ids for p in out)         # confirmed off-topic DELETED everywhere
 
 
-def test_router_singleton_failopen_keeps_uncertain(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_router_singleton_without_analytical_home_stays_out_of_outline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PG_ROUTE_ALL_BASKETS", "1")
     plans = [SectionPlan(title="Labor Market", focus="labor market", ev_ids=["seed"], archetype="")]
     cred = SimpleNamespace(baskets=[])
@@ -141,8 +141,8 @@ def test_router_singleton_failopen_keeps_uncertain(monkeypatch: pytest.MonkeyPat
         plans, cred, section_plan_cls=SectionPlan,
         off_topic_ev_ids=None, singleton_candidates=cands,
     )
-    all_ids = {e for p in out for e in p.ev_ids}
-    assert "e_unc" in all_ids                                 # uncertain => KEPT (residual), never deleted
+    assert out is plans
+    assert all("e_unc" not in p.ev_ids for p in out)
 
 
 def test_router_flag_off_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -106,7 +106,7 @@ def _f1_fixture():
     basket_b = _Basket("wage inequality widened across the income distribution",
                        [_Member("orphanB", "wage inequality widened across income groups")],
                        subject="wage inequality", predicate="widened")
-    # Orphan C: no member in any plan; claim overlaps NO plan title -> residual section.
+    # Orphan C: no member in any plan and no analytical home; it remains disclosure-only.
     basket_c = _Basket("coral reef bleaching accelerated in tropical oceans",
                        [_Member("orphanC", "coral reef bleaching accelerated near the equator")],
                        subject="coral reef bleaching", predicate="accelerated")
@@ -126,26 +126,22 @@ def test_f1_orphan_baskets_stranded_when_off(monkeypatch):
     )
 
 
-def test_f1_routes_every_basket_to_a_section_zero_stranded(monkeypatch):
+def test_f1_routes_only_baskets_with_an_analytical_home(monkeypatch):
     monkeypatch.setenv("PG_ROUTE_ALL_BASKETS", "1")
     plans, cred = _f1_fixture()
     out = vc.route_orphan_baskets_to_section_plans(plans, cred, section_plan_cls=SectionPlan)
 
     reached = _reachable_baskets(out, cred)
     all_claims = {b.claim_text for b in cred.baskets}
-    assert reached == all_claims, (
-        f"EVERY consolidated basket must reach a section (zero stranded); "
-        f"missing={all_claims - reached}"
-    )
+    assert reached == all_claims - {"coral reef bleaching accelerated in tropical oceans"}
 
     # Orphan B routed to its best-matching TOPICAL section (wage inequality = plan index 1), by
-    # appending its member ev_id — NOT to the residual section.
+    # appending its member ev_id without creating a residual section.
     assert "orphanB" in plans[1].ev_ids, "orphan B must route to the topically-matching section"
 
-    # Orphan C matched no section title -> a single keep-all residual section was appended.
-    residual = [p for p in out if p.title == "Additional Corroborated Findings"]
-    assert len(residual) == 1, "a basket matching no section must get a residual coverage section"
-    assert "orphanC" in residual[0].ev_ids
+    assert out is plans
+    assert all(p.title != "Additional Corroborated Findings" for p in out)
+    assert all("orphanC" not in p.ev_ids for p in out)
 
 
 def test_f1_never_reassigns_an_already_homed_basket(monkeypatch):

@@ -3766,19 +3766,13 @@ def _section_assigned_ev_ids(section: Any) -> set:
 # recall leak.
 #
 # THE FIX (§-1.3 CONSOLIDATE / throttle-REMOVAL, faithfulness-neutral): after the outline assigns its
-# primaries, give every ORPHAN basket (whose members intersect NO plan's ev_ids) a home. Assign each
-# to its best-matching section by topical content-word overlap (basket claim/subject/predicate vs the
-# section title/focus); a basket that matches NO section is routed to a keep-all residual "Additional
-# Corroborated Findings" section appended once. Routing = appending the orphan basket's own
-# ``supporting_members`` evidence_ids to the chosen plan's ``ev_ids`` so the UNCHANGED
-# ``_section_baskets_for_compose`` now returns that basket for the section, and the UNCHANGED
-# per-basket compose + strict_verify tail render one verified sentence for it. This DROPS nothing,
-# CAPS nothing, and TARGETS no number: it stops DISCARDING baskets that had no section. Each rendered
-# sentence still re-passes the frozen faithfulness engine (strict_verify / NLI / provenance /
-# span-grounding) per clause — untouched. Default-OFF (``PG_ROUTE_ALL_BASKETS``) => ``plans`` is
-# returned unchanged (byte-identical); ON => zero stranded verified baskets.
+# primaries, give each ORPHAN basket with an analytical home to its best-matching section by topical
+# content-word overlap (basket claim/subject/predicate vs the section title/focus). A basket matching
+# no section remains in the provenance and disclosure surfaces as an outline/relevance signal; it does
+# not become a trailing miscellaneous section. Routing = appending the orphan basket's own
+# ``supporting_members`` evidence_ids to the chosen plan's ``ev_ids`` so the unchanged compose and
+# verification path can render it. The faithfulness engine is untouched.
 _ROUTE_ALL_BASKETS_ENV = "PG_ROUTE_ALL_BASKETS"
-_RESIDUAL_COVERAGE_TITLE = "Additional Corroborated Findings"
 
 
 def route_all_baskets_enabled() -> bool:
@@ -3889,21 +3883,19 @@ def route_orphan_baskets_to_section_plans(
     credibility_analysis: Any,
     *,
     section_plan_cls: Any,
-    residual_title: str = _RESIDUAL_COVERAGE_TITLE,
     off_topic_ev_ids: set | None = None,
     singleton_candidates: Any = None,
 ) -> list:
-    """F1: route EVERY consolidated basket to a section so no verified basket is stranded.
+    """Route consolidated baskets that have a clear analytical home.
 
     A basket is an ORPHAN when NONE of its ``supporting_members`` evidence_ids is in ANY plan's
     ``ev_ids`` (i.e. ``_section_baskets_for_compose`` would return it for no section). Each orphan is
     assigned to the section whose title+focus shares the most topical content words with the basket's
-    claim (ties broken by section order); a basket matching NO section (overlap 0 with every plan) is
-    routed to a single appended keep-all residual section. Assignment = appending the orphan basket's
-    own member evidence_ids to the chosen plan's ``ev_ids``.
+    claim (ties broken by section order). A basket matching no section remains retained in provenance
+    and disclosure but does not create a miscellaneous report section.
 
-    Returns the (possibly residual-extended) plan list. Default-OFF (``PG_ROUTE_ALL_BASKETS``) or an
-    empty ``plans``/basket list => ``plans`` returned unchanged (byte-identical).
+    Returns the original plan list after in-place analytical routing. Default-OFF
+    (``PG_ROUTE_ALL_BASKETS``) or an empty ``plans``/basket list => ``plans`` returned unchanged.
 
     §-1.3: pure CONSOLIDATE placement — it stops DISCARDING baskets with no home; it drops no source,
     caps nothing, targets no number. The frozen faithfulness engine is untouched: every routed
@@ -3911,9 +3903,7 @@ def route_orphan_baskets_to_section_plans(
 
     ``off_topic_ev_ids`` (item 8, §-1.3.1 off-topic carve-out): the set of evidence_ids a SEMANTIC
     topic judge CONFIRMED off-topic (supplied by the caller from the cp4 topic-judge dispositions).
-    A basket whose EVERY member is in this set is DELETED here — never routed into the report (the
-    keep-all residual section is exactly where zero-overlap off-topic junk — book-banning, climate
-    policy, IPCC, medical-transcriptionist rows — would otherwise land when this flag fires). This is
+    A basket whose EVERY member is in this set is DELETED here — never routed into the report. This is
     FAIL-OPEN: if ANY member is not judge-confirmed off-topic the basket is KEPT and routed as usual
     (uncertainty => keep). Every deletion is DISCLOSED via the counter + log (never silent). ``None``/
     empty => byte-identical keep-all behaviour (no basket is ever deleted by tier/lexeme/number).
@@ -3923,7 +3913,7 @@ def route_orphan_baskets_to_section_plans(
     loop above can never reach them — much of the drb_72 unassigned-singleton list, incl. the seminal
     T1 works Acemoglu-Restrepo / Autor). Each is a Mapping ``{evidence_id, text}`` (``text`` = title +
     statement for the overlap match). Routed by the SAME title+focus content-word overlap rule as
-    baskets (residual otherwise), AFTER the basket loop. Same FAIL-OPEN off-topic gate: a candidate
+    baskets, AFTER the basket loop. Same FAIL-OPEN off-topic gate: a candidate
     whose ev_id is in ``off_topic_ev_ids`` is DELETED (disclosed) before routing; uncertainty => KEEP.
     ``None``/empty => byte-identical to the basket-only behaviour (no singleton is ever routed).
     """
@@ -3944,8 +3934,8 @@ def route_orphan_baskets_to_section_plans(
     # LEVER C+ marginal-coverage gate thresholds (read ONCE; defaults 1/0 = legacy byte-identical).
     _min_overlap = _route_min_overlap()
     _margin = _route_margin()
-    residual_plan = None
     routed = 0
+    retained_unassigned = 0
     deleted_offtopic = 0
     deleted_offtopic_members: list[str] = []
     for basket in baskets:
@@ -3967,11 +3957,7 @@ def route_orphan_baskets_to_section_plans(
         if best_plan is not None:
             _extend_plan_ev_ids(best_plan, member_ids)
         else:
-            if residual_plan is None:
-                residual_plan = section_plan_cls(
-                    title=residual_title, focus=residual_title, ev_ids=[], archetype="",
-                )
-            _extend_plan_ev_ids(residual_plan, member_ids)
+            retained_unassigned += 1
         claimed |= set(member_ids)
         routed += 1
 
@@ -3995,23 +3981,17 @@ def route_orphan_baskets_to_section_plans(
         if best_plan is not None:
             _extend_plan_ev_ids(best_plan, [eid])
         else:
-            if residual_plan is None:
-                residual_plan = section_plan_cls(
-                    title=residual_title, focus=residual_title, ev_ids=[], archetype="",
-                )
-            _extend_plan_ev_ids(residual_plan, [eid])
+            retained_unassigned += 1
         claimed.add(eid)
         routed_singletons += 1
 
-    out_plans = list(plans)
-    if residual_plan is not None and residual_plan.ev_ids:
-        out_plans.append(residual_plan)
-    if routed or routed_singletons or deleted_offtopic:
+    if routed or routed_singletons or deleted_offtopic or retained_unassigned:
         logger.info(
             "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) + %d unassigned "
             "singleton(s) to sections; DELETED %d judge-confirmed off-topic item(s) (%d member rows) "
-            "before routing (§-1.3.1 fail-open, disclosed); residual section=%s",
+            "before routing (§-1.3.1 fail-open, disclosed); retained %d item(s) in provenance/disclosure "
+            "without an analytical section home",
             routed, routed_singletons, deleted_offtopic, len(deleted_offtopic_members),
-            "yes" if residual_plan is not None else "no",
+            retained_unassigned,
         )
-    return out_plans
+    return plans

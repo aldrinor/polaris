@@ -3039,8 +3039,8 @@ def _sentence_split_symbol_boundary_enabled() -> bool:
 
 
 def _render_blocks_enabled() -> bool:
-    """LEVER 1 (PG_RENDER_BLOCKS, default OFF). When ON the resolver preserves the writer's blank-line
-    paragraph breaks instead of flattening a section to one blob. OFF / empty => byte-identical flat render."""
+    """LEVER 1 (PG_RENDER_BLOCKS, default ON). Preserve writer-authored blank-line paragraph breaks;
+    an explicit false token keeps the diagnostic flat render."""
     return resolve("PG_RENDER_BLOCKS").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -3052,6 +3052,10 @@ def _render_block_norm_key(text: str) -> str:
     t = _PROVENANCE_TOKEN_RE.sub(" ", text or "")
     t = _CALC_TOKEN_RE.sub(" ", t)
     t = _BOGUS_EV_MARKER_RE.sub(" ", t)
+    # The section writer cites the exact evidence ID supplied in its block; IDs are not required to
+    # carry an ``ev_`` prefix. The span rewriter later replaces these with canonical tokens, so remove
+    # the pre-rewrite alphanumeric marker for paragraph-position matching as well.
+    t = re.sub(r"\[[A-Za-z][A-Za-z0-9_.-]{2,}\]", " ", t)
     t = re.sub(r"\[\d+\]", " ", t)  # numbered citation markers
     t = unicodedata.normalize("NFKC", t).casefold()
     return "".join(ch for ch in t if ch.isalnum())
@@ -3067,12 +3071,17 @@ def _paragraph_block_index_by_position(
     a no-exact-match sentence is UNMATCHED — both return ``None`` (the caller's uncertainty-latch flattens
     that boundary rather than risk shifting it). Fewer than 2 non-empty blocks => all zeros (nothing to
     preserve). NEVER invents or moves a break."""
-    blocks = re.split(r"\n\s*\n+", source_text or "")
+    blocks = [block for block in re.split(r"\n\s*\n+", source_text or "") if block.strip()]
+    # Some transports preserve paragraph boundaries as single physical line breaks. When no
+    # blank-line split exists, preserve each non-empty writer-authored line as a block; no boundary is
+    # invented inside a physical line.
+    if len(blocks) < 2:
+        physical_lines = [line.strip() for line in (source_text or "").splitlines() if line.strip()]
+        if len(physical_lines) > 1:
+            blocks = physical_lines
     seq: list[tuple[str, int]] = []  # (norm_key, contiguous_block_idx)
     bi = 0
     for blk in blocks:
-        if not blk.strip():
-            continue
         added = False
         for s in split_into_sentences(blk):
             k = _render_block_norm_key(s)

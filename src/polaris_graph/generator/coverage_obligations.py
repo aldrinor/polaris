@@ -63,7 +63,7 @@ def thread_obligations(plans: Sequence[Any], obligations: Sequence[CoverageOblig
     for position, obligation in enumerate(obligations):
         plan = plans[position % len(plans)]
         direction = (
-            "develop one explicit cross-context comparative unit"
+            "make at least one explicit comparison across contexts (regions, industries, populations, or periods)"
             if obligation.comparative else f"treat it analytically as a {obligation.role}"
         )
         plan.focus = (

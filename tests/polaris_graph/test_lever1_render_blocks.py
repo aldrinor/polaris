@@ -1,6 +1,6 @@
 """LEVER 1 (structure-preserving render, PG_RENDER_BLOCKS).
 
-Two coordinated halves behind ONE flag, default OFF => byte-identical:
+Two coordinated halves behind ONE flag, default ON:
   * resolver half: preserve the writer's blank-line paragraph breaks instead of flattening a section
     to one `" ".join` blob (provenance_generator.resolve_provenance_to_citations_with_count).
   * writer half: flip section-prompt rule 7 to a paragraphs-only directive (multi_section_generator.
@@ -26,6 +26,7 @@ from src.polaris_graph.generator.multi_section_generator import (
     SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC,
     _RENDER_BLOCKS_RULE_7,
     _build_paragraph_variant,
+    _materialize_paragraph_breaks,
     _select_section_system_prompt,
 )
 
@@ -63,8 +64,8 @@ def _kept() -> list[SentenceVerification]:
 
 
 def test_off_is_byte_identical(monkeypatch):
-    """Flag unset => flat `" ".join` render, byte-for-byte, whether or not a source draft is passed."""
-    monkeypatch.delenv("PG_RENDER_BLOCKS", raising=False)
+    """Explicit false token => flat render, whether or not a source draft is passed."""
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
     text_no_src, _, _ = resolve_provenance_to_citations_with_count(_kept(), _pool())
     text_with_src, _, _ = resolve_provenance_to_citations_with_count(
         _kept(), _pool(), section_source_text=_SOURCE,
@@ -98,24 +99,33 @@ def test_on_without_source_stays_flat(monkeypatch):
     assert "\n\n" not in text
 
 
-def test_single_block_source_has_no_breaks(monkeypatch):
-    """A one-paragraph source (writer emitted no breaks) => <2 blocks => flat, byte-identical to OFF."""
-    monkeypatch.setenv("PG_RENDER_BLOCKS", "1")
-    one_para = _P1 + " " + _P2  # no blank line
-    on_text, _, _ = resolve_provenance_to_citations_with_count(
-        _kept(), _pool(), section_source_text=one_para,
+def test_paragraph_matching_strips_unprefixed_writer_evidence_markers():
+    assert _render_block_norm_key(
+        "A supported proposition.[source_alpha]"
+    ) == _render_block_norm_key(
+        "A supported proposition.[1]"
     )
-    off_text, _, _ = _off_render()
-    assert on_text == off_text
+
+
+def test_single_newline_writer_boundaries_render_as_blank_lines(monkeypatch):
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "1")
+    source = _P1 + "\n" + _P2
+    text, _, _ = resolve_provenance_to_citations_with_count(
+        _kept(), _pool(), section_source_text=source,
+    )
+    assert text.count("\n\n") == 1
 
 
 def _off_render():
     import os
-    prev = os.environ.pop("PG_RENDER_BLOCKS", None)
+    prev = os.environ.get("PG_RENDER_BLOCKS")
+    os.environ["PG_RENDER_BLOCKS"] = "0"
     try:
         return resolve_provenance_to_citations_with_count(_kept(), _pool())
     finally:
-        if prev is not None:
+        if prev is None:
+            os.environ.pop("PG_RENDER_BLOCKS", None)
+        else:
             os.environ["PG_RENDER_BLOCKS"] = prev
 
 
@@ -128,11 +138,11 @@ def _norm_spaces(t: str) -> str:
 def test_paragraph_variant_changes_only_rule_7():
     tmpl = SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
     anchor = ("7. Do not write a section heading, section title, or preamble. "
-              "Just the paragraph body.")
+              "Just the section body.")
     variant = _build_paragraph_variant(tmpl)
     assert variant != tmpl
     assert _RENDER_BLOCKS_RULE_7 in variant
-    assert "Just the paragraph body." not in variant
+    assert "Just the section body." not in variant
     # the change is EXACTLY the rule-7 substitution — everything else byte-identical
     assert variant == tmpl.replace(anchor, _RENDER_BLOCKS_RULE_7)
     # paragraphs-only intent: asks for blank-line-separated paragraphs and PROHIBITS structure markup
@@ -141,11 +151,11 @@ def test_paragraph_variant_changes_only_rule_7():
 
 
 def test_select_prompt_flat_when_off(monkeypatch):
-    monkeypatch.delenv("PG_RENDER_BLOCKS", raising=False)
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
     monkeypatch.delenv("PG_SECTION_STRUCTURE", raising=False)
     monkeypatch.delenv("PG_ANTI_VERBOSITY", raising=False)
     base = _select_section_system_prompt(use_field_agnostic=True, anti_verbosity=False)
-    assert "Just the paragraph body." in base
+    assert "Just the section body." in base
     assert _RENDER_BLOCKS_RULE_7 not in base
 
 
@@ -155,6 +165,18 @@ def test_select_prompt_paragraph_when_on(monkeypatch):
     monkeypatch.delenv("PG_ANTI_VERBOSITY", raising=False)
     base = _select_section_system_prompt(use_field_agnostic=True, anti_verbosity=False)
     assert _RENDER_BLOCKS_RULE_7 in base
+
+
+def test_writer_break_marker_materializes_without_touching_prose(monkeypatch):
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "1")
+    marked = "First supported move [ev_a].\n[[PARAGRAPH_BREAK]]\nSecond supported move [ev_b]."
+    assert _materialize_paragraph_breaks(marked) == (
+        "First supported move [ev_a].\n\nSecond supported move [ev_b]."
+    )
+    inline = "First supported move [ev_a]. [[PARAGRAPH_BREAK]] Second supported move [ev_b]."
+    assert _materialize_paragraph_breaks(inline) == (
+        "First supported move [ev_a].\n\nSecond supported move [ev_b]."
+    )
 
 
 # ── FIX 1: matcher safety (exact-key, ambiguity/unmatched => None, latch flattens) ─────────────
@@ -304,7 +326,7 @@ def _replay_kept():
 
 def test_replay_champion_off_vs_on(monkeypatch):
     monkeypatch.setenv("PG_STRICT_VERIFY_OFF", "1")  # champion recipe: no drops
-    monkeypatch.delenv("PG_RENDER_BLOCKS", raising=False)
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
     off_text, off_biblio, off_emitted = resolve_provenance_to_citations_with_count(
         _replay_kept(), _pool(), section_source_text=_REPLAY_SRC,
     )
