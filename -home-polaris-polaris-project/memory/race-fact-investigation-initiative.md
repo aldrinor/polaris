@@ -87,6 +87,19 @@ scoreboard is Gate-B (V30 on), the real active writer is the slot/contract path 
 there + re-baseline. MUST consult operator: which harness is the scoreboard we optimize — V30-off compose (mf_baseline
 as-generated) or V30-on Gate-B? This gates the whole build. Loop PAUSED (no v4 gate) pending answer.
 
+**OPERATOR DECISION 2026-07-23: canonical scoreboard = GATE-B / V30-ON (slot path).** => (1) mf_baseline 0.5009 is
+INVALID as champion (V30-off); MUST RE-BASELINE under V30-on (Gate-B) before any Wave-1 measurement — real champion
+number currently unknown; possible seed outputs/full_scale_v30_phase2_run14. (2) Active writer = the V30 NARRATIVE
+stream: slot_fill.build_slot_narrative_prompt (:703, _SYSTEM_PROMPT :207) driven by
+contract_section_runner.run_contract_section (:1627), per-sentence verified (rescue-ineligible), concatenated to
+verified_text; NOT abstractive_writer/_compose_section_per_basket (that's the legacy V30-off path). (3) The 4 Sol gate
+rounds' CHARTER (C1-C5), pre-producer canary doctrine, exact emitted==admitted-candidate binding, ordered-token
+layout, complete-route coverage, OFF-path identity, semantic naming, 6-stage staging ALL CARRY OVER — only the
+transport TARGET moves to the slot writer. (4) Phase-3 PIPELINE_GAP_AUDIT needs a V30 re-map (its "_compose_section_
+per_basket" seam is legacy). NEXT: Sol line-by-line investigation of the V30 slot writer → retargeted Wave-1 seam map
+→ spec v4 → re-gate → build Stage 1. Re-baseline run is a prerequisite (needs generation budget; OQ-5 "Wave-1 only ~6
+gens" was for the legacy path — may need re-confirm).
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
