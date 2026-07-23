@@ -71,6 +71,22 @@ change → (2) premise-owned inference planning → (3) active consumption via a
 post-compose fail-closed audit → (5) U12-lite separately gated at final render → (6) U14b last/separate arm.
 Verdict at scratchpad/investigators/wave1_solgate_verdict.md (457 lines). Revising spec → re-gate before code.
 
+**GATE ROUNDS + DECISIVE DISCOVERY (2026-07-23, 3 NO-GOs, then paused for operator):** Sol v1 NO-GO (active writer
+= abstractive_writer not compose seam); v2 NO-GO (8/14 pass); v3 NO-GO (subset-check permits a DIFFERENT proposition
+from same premise words → must bind emitted==admitted candidate exactly, ordered tokens/markers; operator license
+matrix "launders" relations; dark authored routes: sentence_repair :6821-6858, fact_dedup :12533-12720, REDUCE
+branch of _call_section :4057-4154, AND a SEPARATE report architecture — contract-section narrative via
+_m63_narrative_llm_call / contract_section_runner.py / slot_fill.py). **THE FORK (operator decision pending):** there
+are TWO writer architectures + TWO harnesses. (1) LEGACY abstractive path (_run_section→abstractive_pre_pass→
+_call_writer→_compose_section_per_basket): used when PG_V30_PHASE2_ENABLED=0 (DEFAULT). The CHAMPION mf_baseline
+0.5009 was generated on THIS path (run_race_max_focus.sh→run_k3.sh→run_raw_a.sh→compose_agentic_report; none set
+V30). (2) V30 CONTRACT-SECTION/SLOT path (contract_section_runner.py build_slot_narrative_prompt / slot_fill.py):
+scripts/dr_benchmark/run_gate_b.py:5746 FORCE-sets PG_V30_PHASE2_ENABLED=1, and its code self-describes as "THE
+PRIMARY LIVE BENCHMARK PATH". So all Phase-3 audit + 4 gate rounds targeted the LEGACY path; if the canonical
+scoreboard is Gate-B (V30 on), the real active writer is the slot/contract path and Wave-1 transport must retarget
+there + re-baseline. MUST consult operator: which harness is the scoreboard we optimize — V30-off compose (mf_baseline
+as-generated) or V30-on Gate-B? This gates the whole build. Loop PAUSED (no v4 gate) pending answer.
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
