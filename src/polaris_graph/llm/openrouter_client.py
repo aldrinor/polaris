@@ -3234,6 +3234,7 @@ class OpenRouterClient:
         timeout: Optional[float] = None,
         reasoning_max_tokens: Optional[int] = None,
         reasoning_exclude: Optional[bool] = None,
+        reasoning_effort: str = "high",
         response_format: Optional[dict] = None,
     ) -> LLMResponse:
         """Prose/output call — see :meth:`_generate_impl` for the full body.
@@ -3254,6 +3255,7 @@ class OpenRouterClient:
                 timeout=timeout,
                 reasoning_max_tokens=reasoning_max_tokens,
                 reasoning_exclude=reasoning_exclude,
+                reasoning_effort=reasoning_effort,
                 response_format=response_format,
             )
         finally:
@@ -3271,6 +3273,7 @@ class OpenRouterClient:
         timeout: Optional[float] = None,
         reasoning_max_tokens: Optional[int] = None,
         reasoning_exclude: Optional[bool] = None,
+        reasoning_effort: str = "high",
         response_format: Optional[dict] = None,
     ) -> LLMResponse:
         """
@@ -3293,6 +3296,7 @@ class OpenRouterClient:
             messages=messages,
             call_type="generate",
             reasoning_enabled=False,
+            reasoning_effort=reasoning_effort,
             temperature=temperature,
             max_tokens=max_tokens,
             response_format=response_format,

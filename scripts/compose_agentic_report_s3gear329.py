@@ -196,6 +196,37 @@ def _dedup_biblio_by_work(biblio: list[dict]) -> list[dict]:
     return out
 
 
+def _live_topic_judge(prompt: str) -> str:
+    """Synchronous scope-judge adapter used from the contract worker thread."""
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        OpenRouterClient,
+        PG_GENERATOR_MODEL,
+    )
+
+    model = os.environ.get("PG_SCOPE_TOPIC_MODEL", PG_GENERATOR_MODEL)
+    try:
+        max_tokens = int(resolve("PG_SCOPE_CONTRACT_MAX_TOKENS") or "131072")
+    except ValueError:
+        max_tokens = 131072
+    max_tokens = max_tokens if max_tokens > 0 else 131072
+
+    async def _run() -> str:
+        client = OpenRouterClient(model=model)
+        try:
+            response = await client.generate(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=0.0,
+                reasoning_effort="xhigh",
+            )
+            return (response.content or "").strip()
+        finally:
+            if hasattr(client, "close"):
+                await client.close()
+
+    return asyncio.run(_run())
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--corpus", required=True)
@@ -280,30 +311,116 @@ async def main() -> int:
     else:
         rq = corpus_rq
     evidence = corpus["evidence"]
+    corpus_evidence_count = len(evidence)
     raw_clusters = corpus.get("finding_clusters") or []
     clusters = [SimpleNamespace(**c) if isinstance(c, dict) else c for c in raw_clusters]
     swg = corpus.get("same_work_groups")
     domain = corpus.get("domain", "")
 
-    # Coverage obligations use the existing generic constraint schema before generation.
+    # Scope + coverage obligations share the existing generic constraint schema.
+    # The scope contract is default-ON, so extraction must not depend on the
+    # optional coverage-obligations presentation flag.
     _scope_constraints: dict = {}
-    if (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() in (
+    from src.polaris_graph.retrieval.scope_contract import (  # noqa: PLC0415
+        scope_contract_enabled,
+    )
+    _coverage_on = (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() in (
         "1", "true", "yes", "on",
-    ):
+    )
+    if _coverage_on or scope_contract_enabled():
         try:
             from src.polaris_graph.instruction.constraint_extractor import (  # noqa: PLC0415
                 extract_constraints_async,
             )
+            from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+                OpenRouterClient, PG_EVALUATOR_MODEL,
+            )
+            _constraint_client = OpenRouterClient(model=PG_EVALUATOR_MODEL)
             _scope_constraints = dict(await extract_constraints_async(
-                rq, max_tokens=int(resolve("PG_EXTRACTION_MAX_TOKENS")),
+                rq,
+                max_tokens=int(resolve("PG_SCOPE_CONTRACT_MAX_TOKENS")),
+                reasoning_effort="xhigh",
+                client=_constraint_client,
             ))
         except Exception as exc:  # noqa: BLE001 — disclosed empty constraints; corpus remains intact
             log.warning("[constraints] extraction unavailable: %s", exc)
             _scope_constraints = {}
+        finally:
+            if "_constraint_client" in locals() and hasattr(_constraint_client, "close"):
+                await _constraint_client.close()
 
     run_id = time.strftime("agentic_report_%Y%m%d_%H%M%S")
     run_dir = ROOT / (args.out_dir or f"outputs/{run_id}")
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # SOL STEP 2B: atomic pre-generation scope partition.  The input corpus is
+    # retained byte-for-byte in ``corpus``; only copied survivors reach the
+    # writer.  The compose seam has no direct retrieval-round callable, so it
+    # records deepening as unavailable instead of treating later opportunistic
+    # outline-tool searches as a contract-aware saturation loop.
+    _scope_disclosure: dict = {
+        "input_count": corpus_evidence_count,
+        "composition_evidence_count": corpus_evidence_count,
+        "off_topic_excluded_count": 0,
+        "wrong_type_excluded_count": 0,
+        "contract_enabled": scope_contract_enabled(),
+        "deepening_status": "requires_retrieval_pipeline",
+    }
+    if scope_contract_enabled():
+        try:
+            from src.polaris_graph.retrieval.scope_contract import (  # noqa: PLC0415
+                apply_scope_contract,
+                remap_finding_clusters,
+                remap_same_work_groups,
+            )
+            _scope_result = await asyncio.to_thread(
+                apply_scope_contract,
+                evidence,
+                rq,
+                _live_topic_judge,
+                constraints=_scope_constraints,
+            )
+            _scoped_clusters = remap_finding_clusters(
+                raw_clusters, _scope_result.kept_original_indices,
+            )
+            _kept_ids = {
+                str(row.get("evidence_id") or "") for row in _scope_result.evidence
+                if str(row.get("evidence_id") or "")
+            }
+            _scoped_swg = remap_same_work_groups(
+                swg or [], _scope_result.kept_original_indices, _kept_ids,
+            )
+            _scope_disclosure = _scope_result.disclosure()
+            _scope_disclosure.update({
+                "contract_enabled": True,
+                "deepening_status": "requires_retrieval_pipeline",
+                "finding_clusters_before": len(raw_clusters),
+                "finding_clusters_after": len(_scoped_clusters),
+                "same_work_groups_before": len(swg or []),
+                "same_work_groups_after": len(_scoped_swg),
+            })
+            # Atomic commit only after partition + dependent-index remaps +
+            # disclosure all succeed.  Any exception leaves the full pool.
+            evidence = _scope_result.evidence
+            raw_clusters = _scoped_clusters
+            clusters = [SimpleNamespace(**c) for c in raw_clusters]
+            swg = _scoped_swg
+            log.info(
+                "[scope-contract] input=%d off_topic_excluded=%d "
+                "wrong_type_excluded=%d composition=%d (corpus retained)",
+                corpus_evidence_count,
+                _scope_disclosure["off_topic_excluded_count"],
+                _scope_disclosure["wrong_type_excluded_count"],
+                len(evidence),
+            )
+        except Exception as exc:  # noqa: BLE001 — fail-open, never nuke a paid run
+            log.warning("[scope-contract] failed open; composition pool unchanged: %s", exc)
+            _scope_disclosure["judge_failed_open"] = True
+            _scope_disclosure["failure"] = str(exc)[:300]
+    (run_dir / "scope_contract_disclosure.json").write_text(
+        json.dumps(_scope_disclosure, indent=2, sort_keys=True, default=str) + "\n",
+        encoding="utf-8",
+    )
     log.info("corpus=%s  evidence=%d  clusters=%d  same_work_groups=%s  domain=%s",
              corpus_path.name, len(evidence), len(clusters),
              len(swg or []), domain or "(none)")
@@ -547,8 +664,15 @@ async def main() -> int:
             "# Methods / pipeline telemetry (sidecar — NOT part of the judged report.md)\n\n"
             f"Judged task: DRB task {args.rq_drb_task} (verbatim prompt).\n"
             f"Corpus RQ (provenance): {corpus_rq[:200]}...\n"
-            f"Corpus: {corpus_path.name} ({len(evidence)} evidence rows, {len(clusters)} baskets; "
+            f"Corpus: {corpus_path.name} ({corpus_evidence_count} archived evidence rows; "
+            f"{len(evidence)} composition-eligible rows, {len(clusters)} baskets; "
             f"domain={domain or 'general'}).\n"
+            f"Scope contract: off-topic excluded={_scope_disclosure.get('off_topic_excluded_count', 0)}; "
+            f"wrong-type/language excluded={_scope_disclosure.get('wrong_type_excluded_count', 0)}; "
+            "excluded rows retained in the source corpus and disclosed in "
+            "scope_contract_disclosure.json.\n"
+            "Deepening: unavailable at this prebuilt-corpus seam; run the retrieval pipeline "
+            "with the contract deepening hook for target/saturation-aware acquisition.\n"
             f"Outliner: AGENTIC (PG_OUTLINE_AGENT=1) — agent {outliner_agent_model()}, "
             f"code {outliner_code_model()}.\n"
             f"Generator: {PG_GENERATOR_MODEL} (multi-section: agentic outline + "
@@ -582,10 +706,10 @@ async def main() -> int:
         # the citation audit above (which is untouched). It reads the finished report +
         # outline + biblio and reports term-level SATISFIED/FAILED/UNSATISFIABLE/UNKNOWN
         # per contract term with its owning stage. It NEVER drops/edits content and NEVER
-        # touches strict_verify. retrieval_scope_status is recorded as
-        # 'not_evaluated_prebuilt_corpus' because this driver runs on a PREBUILT corpus —
-        # discovery never ran under the contract, so no scope requirement is claimed
-        # satisfied. No --gate-artifact => no contract => an empty audit (fail-open).
+        # touches strict_verify.  This prebuilt corpus is scope-partitioned before
+        # composition, but discovery/deepening did not run under the contract; the
+        # status names both facts. No --gate-artifact => no planning contract => an
+        # empty audit (fail-open).
         compliance = None
         if _gate_contract is not None:
             try:
@@ -599,7 +723,9 @@ async def main() -> int:
                     final_report,
                     outline=outline_titles,
                     biblio=biblio,
-                    retrieval_scope_status="not_evaluated_prebuilt_corpus",
+                    retrieval_scope_status=(
+                        "prebuilt_corpus_scope_contract_applied_no_deepening"
+                    ),
                     contract_sha256=_contract_sha,
                 )
                 compliance = _ca.to_dict()
@@ -621,7 +747,9 @@ async def main() -> int:
             "report_title": title,
             "section_headings": [s.title for s in multi.sections
                                  if not s.dropped_due_to_failure and s.verified_text],
+            "corpus_evidence_rows": corpus_evidence_count,
             "evidence_rows": len(evidence),
+            "scope_contract": _scope_disclosure,
             "baskets": len(clusters),
             "same_work_groups": len(swg or []),
             "outline_sections": len(multi.outline),
@@ -635,10 +763,9 @@ async def main() -> int:
             "report_words": len(final_report.split()),
             "faithfulness_audit": audit,
             "faithfulness_pass": faithful,
-            # S4 disclosure: retrieval scope was NOT evaluated (prebuilt corpus). The
-            # contract-compliance audit (when a gate artifact was supplied) is a
-            # SIDECAR disclosure — it never gates the run's return code.
-            "retrieval_scope_status": "not_evaluated_prebuilt_corpus",
+            # S4 disclosure: scope was evaluated on the prebuilt rows, while live
+            # contract-aware discovery/deepening was not run at this seam.
+            "retrieval_scope_status": "prebuilt_corpus_scope_contract_applied_no_deepening",
             "contract_compliance": compliance,
             "cp4_used": cp4_used,
             "degraded_to_seed": degraded_to_seed,

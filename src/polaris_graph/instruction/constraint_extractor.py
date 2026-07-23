@@ -392,6 +392,7 @@ async def extract_constraints_async(
     model: Optional[str] = None,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    reasoning_effort: str = "high",
     client: Any = None,
 ) -> dict[str, Any]:
     """Adversarially extract deliverable constraints from ``prompt`` (async).
@@ -429,6 +430,7 @@ async def extract_constraints_async(
         system=_SYSTEM_PROMPT,
         max_tokens=max_tokens,
         temperature=temperature,
+        reasoning_effort=reasoning_effort,
     )
     raw = getattr(response, "content", None) or ""
     constraints = parse_constraints_json(raw)
@@ -441,6 +443,7 @@ def extract_constraints(
     model: Optional[str] = None,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    reasoning_effort: str = "high",
     client: Any = None,
 ) -> dict[str, Any]:
     """Synchronous wrapper around :func:`extract_constraints_async`.
@@ -465,6 +468,7 @@ def extract_constraints(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
             client=client,
         )
     )

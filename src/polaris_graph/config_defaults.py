@@ -841,6 +841,13 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_SCOPE_TOPIC_BATCH': '',
     'PG_SCOPE_TOPIC_GATE': '1',
     'PG_SCOPE_TOPIC_GATE_HARD_DROP': '0',
+    # Pre-generation composition scope contract.  Default ON only at callers
+    # that invoke the contract; it never changes retrieval or verification by
+    # import side effect.  OFF is the emergency fail-open rollback.
+    'PG_COMPOSITION_SCOPE_CONTRACT': '1',
+    # OpenRouter z-ai/glm-5.2 top-provider completion limit verified from
+    # /api/v1/models on 2026-07-23.  A cap is insurance; billing is actual-use.
+    'PG_SCOPE_CONTRACT_MAX_TOKENS': '131072',
     'PG_SEARCH_CACHE_TTL_HOURS': '24',
     'PG_SEARCH_FUSION_WRRF': '',
     'PG_SEARCH_FUSION_WRRF_DEFAULT_WEIGHT': '',

@@ -211,6 +211,12 @@ class TopicGateResult:
     demoted_rows: list[dict[str, Any]] = field(default_factory=list)
     demoted_titles: list[str] = field(default_factory=list)
     n_demoted_offtopic: int = 0
+    # Split-verdict telemetry for conservative downstream contracts.  Only
+    # OFF_SUBJECT is semantically unrelated enough for source-level exclusion;
+    # OFF_ASPECT remains a keep/demote signal.
+    off_subject_rows: list[dict[str, Any]] = field(default_factory=list)
+    off_aspect_rows: list[dict[str, Any]] = field(default_factory=list)
+    n_failed_open_batches: int = 0
 
 
 def _row_title_text(row: dict[str, Any]) -> str:
@@ -487,6 +493,7 @@ def classify_topic_relevance(
     batch_size: int | None = None,
     primary_trial_anchors: list[str] | None = None,
     anchor_predicate: Callable[[dict[str, Any]], bool] | None = None,
+    exclude_offtopic: bool | None = None,
 ) -> TopicGateResult:
     """Drop sources CONFIDENTLY classified OFF-topic for the research question.
 
@@ -581,7 +588,14 @@ def classify_topic_relevance(
     # engine is the only gate. The legacy hard-drop is preserved behind
     # ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (audit / reversal). Order is unchanged in
     # BOTH modes (no tail-partition), so a demoted row stays best-first-ranked.
-    hard_drop = topic_gate_hard_drop_enabled()
+    # A pre-generation scope-contract caller may request exclusion explicitly
+    # without changing the legacy sweep default.  None preserves the centrally
+    # resolved PG_SCOPE_TOPIC_GATE_HARD_DROP behavior byte-for-byte.
+    hard_drop = (
+        topic_gate_hard_drop_enabled()
+        if exclude_offtopic is None
+        else bool(exclude_offtopic)
+    )
     rescue_on_stamp = resolve('PG_TOPIC_GATE_RESCUE_ON_STAMP').strip().lower() not in (
         "0", "false", "no", "off",
     )
@@ -603,6 +617,7 @@ def classify_topic_relevance(
     # OFF_ASPECT (it would be misread as a fresh OFF_SUBJECT and deleted). Empty unless the
     # subject/aspect split is enabled.
     offaspect_rows: list[dict[str, Any]] = []
+    failed_open_batches = 0
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -619,6 +634,7 @@ def classify_topic_relevance(
         try:
             raw = llm_callable(prompt)
         except Exception as exc:  # FAIL-OPEN on any LLM error -> keep batch.
+            failed_open_batches += 1
             _LOGGER.warning(
                 "[scope] topic_gate batch LLM error — fail-open, keeping "
                 "%d sources: %s", len(batch_rows), str(exc)[:200],
@@ -629,6 +645,7 @@ def classify_topic_relevance(
         else:
             verdicts = _parse_batch_verdicts(raw, expected)
         if verdicts is None:  # FAIL-OPEN on count mismatch / unparseable.
+            failed_open_batches += 1
             _LOGGER.warning(
                 "[scope] topic_gate batch unparseable / count mismatch — "
                 "fail-open, keeping %d sources", len(batch_rows),
@@ -715,7 +732,7 @@ def classify_topic_relevance(
         f"topic_gate: in={n_in} kept={len(kept_rows)} "
         f"{verb}={len(offtopic_rows)} exempt={len(exempt_rows)} "
         f"chrome_skipped={n_chrome_skipped} "
-        f"batch_size={size}"
+        f"batch_size={size} failed_open_batches={failed_open_batches}"
     ]
     if offtopic_titles:
         _LOGGER.info(
@@ -737,4 +754,7 @@ def classify_topic_relevance(
         demoted_rows=demoted_rows,
         demoted_titles=demoted_titles,
         n_demoted_offtopic=len(demoted_rows),
+        off_subject_rows=offsubject_rows,
+        off_aspect_rows=offaspect_rows,
+        n_failed_open_batches=failed_open_batches,
     )

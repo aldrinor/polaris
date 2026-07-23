@@ -11,6 +11,7 @@ from src.polaris_graph.generator.coverage_obligations import (
 from src.polaris_graph.generator.multi_section_generator import (
     SECTION_SYSTEM_PROMPT_TEMPLATE,
     SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC,
+    _render_section_report_blueprint,
     _select_section_system_prompt,
 )
 from src.polaris_graph.generator.narrative_consolidation import (
@@ -44,6 +45,39 @@ def test_narrative_guidance_is_retained_as_pre_generation_instruction():
     ):
         assert "why they agree, differ, or condition one another" in template
         assert "rather than implementation vocabulary" in template
+
+
+def test_section_prompts_lock_writer_native_readability_rules():
+    required_rules = (
+        "MUST be on its own physical line, preceded and followed by a blank line",
+        "State each factual finding or statistic ONCE, at full precision",
+        "Use a Markdown table ONLY when at least 3 genuinely comparable sources",
+        "Never mention an internal evidence identifier such as `ev_119` as prose",
+    )
+
+    for template in (
+        SECTION_SYSTEM_PROMPT_TEMPLATE,
+        SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC,
+    ):
+        for rule in required_rules:
+            assert rule in template
+
+
+def test_report_blueprint_gives_writer_every_section_ownership():
+    plans = [
+        SimpleNamespace(title="Context", focus="Define the setting."),
+        SimpleNamespace(title="Findings", focus="Own the principal measured effects."),
+        SimpleNamespace(title="Implications", focus="Explain boundaries and implications."),
+    ]
+
+    blueprint = _render_section_report_blueprint(plans, plans[1])
+
+    assert "1. Context [OTHER SECTION] — owns: Define the setting." in blueprint
+    assert (
+        "2. Findings [CURRENT; transition next to: Implications] — owns: "
+        "Own the principal measured effects."
+    ) in blueprint
+    assert "3. Implications [OTHER SECTION] — owns:" in blueprint
 
 
 def test_post_generation_narrative_surgery_is_not_importable():
