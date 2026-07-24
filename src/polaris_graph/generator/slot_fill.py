@@ -682,21 +682,46 @@ def _dedup_extracted_fields(fields: list[SlotFieldFill]) -> list[SlotFieldFill]:
     return out
 
 
-def _narrative_length_guidance(n_facts: int) -> str:
+# U1 (MASTER_ACTION_PLAN_V2_CLEAN §4, Phase-3 gap U1): a PRE-GENERATION prompt amendment that PERMITS
+# ONE optional paragraph-closing synthesis sentence stating what the paragraph's already-restated fields
+# JOINTLY IMPLY. Pure prompt text — NOT enforcement: the closing sentence is re-verified by the EXISTING
+# per-sentence verifier exactly like every other narrative sentence (it carries the SAME [bound] marker and
+# introduces NO new factual token), so an unsupported implication is DROPPED by the unchanged engine, never
+# rescued. Semantic flag, DEFAULT OFF => the built prompt string is BYTE-IDENTICAL to today. No ghost:
+# no admission gate, no entailment predicate, no post-generation edit, no adjective/version flag name.
+_ENV_CLOSING_SYNTHESIS = "PG_NARRATIVE_CLOSING_SYNTHESIS"
+
+
+def closing_synthesis_enabled() -> bool:
+    """U1 kill-switch (DEFAULT OFF => byte-identical). ON => the narrative prompt permits one optional
+    paragraph-closing synthesis sentence deriving what the restated fields jointly imply."""
+    return os.getenv(_ENV_CLOSING_SYNTHESIS, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _narrative_length_guidance(n_facts: int, allow_closing_synthesis: bool = False) -> str:
     """I-deepfix-001 FIX-D part 1 (#1335, §-1.3): CONTENT-DRIVEN length instruction. One clear
     sentence per DISTINCT fact, NO lower floor; an env-overridable UPPER ceiling only (LAW VI). With
-    few facts the correct paragraph is short — the model must NOT pad to hit a quota."""
+    few facts the correct paragraph is short — the model must NOT pad to hit a quota.
+
+    U1: when ``allow_closing_synthesis`` is True the ceiling reserves room for exactly the ONE optional
+    closing synthesis sentence the U1 prompt permits (a prompt-builder parameter, not a magic target);
+    False => byte-identical to the pre-U1 guidance."""
     n_facts = max(1, int(n_facts))
     allowance = max(0, _env_int(_ENV_NARRATIVE_SENTENCE_ALLOWANCE, _DEFAULT_NARRATIVE_SENTENCE_ALLOWANCE))
     abs_cap = max(1, _env_int(_ENV_NARRATIVE_MAX_SENTENCES, _DEFAULT_NARRATIVE_MAX_SENTENCES))
-    ceiling = min(abs_cap, n_facts + allowance)
+    synthesis_room = 1 if allow_closing_synthesis else 0
+    ceiling = min(abs_cap + synthesis_room, n_facts + allowance + synthesis_room)
+    closing_clause = (
+        " You MAY additionally add at most ONE closing synthesis sentence (defined in the TASK)."
+        if allow_closing_synthesis else ""
+    )
     return (
         f"There are {n_facts} distinct fact(s) above. Write ONE clear declarative sentence per "
         f"distinct fact — about {n_facts} sentence(s) total. There is NO minimum length: brevity is "
         f"correct when the facts are few, and a {n_facts}-sentence paragraph is the right answer for "
         f"{n_facts} fact(s). Do NOT repeat, restate, or rephrase a fact you have already stated, and "
         f"never add a sentence merely to reach a length target. Hard ceiling: do not exceed {ceiling} "
-        f"sentences."
+        f"sentences.{closing_clause}"
     )
 
 
@@ -755,7 +780,28 @@ def build_slot_narrative_prompt(
     # I-deepfix-001 FIX-D part 1 (#1335, §-1.3): length is CONTENT-DRIVEN off the count of DISTINCT
     # extracted facts — NO hardcoded sentence/word floor to pad toward.
     n_facts = len(extracted_fields)
-    length_guidance = _narrative_length_guidance(n_facts)
+    # U1 (MASTER_ACTION_PLAN_V2_CLEAN §4): permit ONE optional closing SYNTHESIS sentence deriving what
+    # the restated fields jointly imply. DEFAULT OFF => byte-identical. When ON, the sentence is bounded
+    # to the SAME [bound] marker + zero new factual tokens, and is re-verified like every other sentence.
+    allow_synth = closing_synthesis_enabled()
+    length_guidance = _narrative_length_guidance(n_facts, allow_closing_synthesis=allow_synth)
+    synth_task = (
+        " After you have restated the extracted fields, you MAY close the paragraph with ONE synthesis "
+        "sentence stating what those already-restated fields JOINTLY IMPLY — a mechanism, boundary "
+        "condition, reconciliation, or consequence that follows ONLY from the sentences you wrote above. "
+        "It must introduce NO new number, percentage, date, unit, named entity, study, metric, outcome, "
+        f"or population that is not already above it, and it must end with the same citation marker [{bound}] "
+        "before the period. If the fields carry no non-trivial joint implication, do NOT write it."
+        if allow_synth else ""
+    )
+    synth_constraint = (
+        "\n- ONE EXCEPTION to \"you are NOT adding information\": the single optional closing SYNTHESIS "
+        "sentence defined in TASK. It states what the fields you restated jointly imply, adds NO new "
+        "factual token (no new number/entity/metric/outcome/population), and carries the same [{bound}] "
+        "marker — it is a synthesis of the restated facts, not a new fact. It is re-verified like every "
+        "other sentence; if it is not entailed by the cited span it is DROPPED."
+        if allow_synth else ""
+    ).replace("{bound}", str(bound))
     return f"""You are writing one PER-ENTITY NARRATIVE PARAGRAPH for a top-tier Deep Research clinical report (the depth of GPT-5.4 DR / Gemini 3.1 Pro DR — flowing declarative prose, not "Field: value" fact-bullets). Depth comes from stating each DISTINCT fact clearly and specifically; it NEVER comes from restating the same fact in different words.
 
 Subsection: {subsection_title}
@@ -766,7 +812,7 @@ VERBATIM-EXTRACTED FIELDS FROM PRIMARY SOURCE (use ONLY these values, do not inv
 
 Source citation marker (use verbatim with no modification): [{bound}]
 
-TASK: Restate each extracted field above as ONE clear, plain, declarative sentence. {length_guidance} Each factual sentence must end with the citation marker [{bound}] before the period. The marker uses the bare-bracket format `[{bound}]` — the post-processor converts it to a span token automatically. Use a contrast marker ("however", "in contrast", "whereas", "by comparison", "although", "despite") ONLY where two DISTINCT facts genuinely contrast — never add a sentence solely to use one.
+TASK: Restate each extracted field above as ONE clear, plain, declarative sentence. {length_guidance} Each factual sentence must end with the citation marker [{bound}] before the period. The marker uses the bare-bracket format `[{bound}]` — the post-processor converts it to a span token automatically. Use a contrast marker ("however", "in contrast", "whereas", "by comparison", "although", "despite") ONLY where two DISTINCT facts genuinely contrast — never add a sentence solely to use one.{synth_task}
 
 NARRATIVE STYLE (matching top-tier DR competitors):
 - ONE flowing paragraph, NOT bullet points or "Field: value" listings
@@ -776,7 +822,7 @@ NARRATIVE STYLE (matching top-tier DR competitors):
 - Integrate clinical interpretation in the comparator-class context (e.g., "consistent with the broader GLP-1 / GIP dual-agonist mechanism literature") ONLY when the extracted fields support that framing — do NOT invent context.
 
 VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by verify_sentence_provenance against the cited spans AFTER you write it, and any sentence that is not entailed by the cited span is DROPPED from the report and CANNOT be rescued):
-- RESTATE ONLY the provided field payloads above. You are re-expressing already-verified facts in flowing prose — you are NOT adding information.
+- RESTATE ONLY the provided field payloads above. You are re-expressing already-verified facts in flowing prose — you are NOT adding information.{synth_constraint}
 - Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly). Do not introduce any number, percentage, count, duration, or date that does not appear verbatim in the extracted fields.
 - Do not introduce new NAMED CONCEPTS, metrics, mechanisms, outcomes, subgroups, or causal claims that are not present in the extracted field values. Specifically forbidden unless they appear verbatim in the fields above: attrition, churn, retention, satisfaction (CSAT/NPS), equilibrium / partial-equilibrium effects, spillovers, or any endpoint/population not listed in the fields.
 - Do not introduce study names, comparators, or trial identifiers that aren't in the extracted fields.

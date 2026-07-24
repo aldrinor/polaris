@@ -449,6 +449,28 @@ _WRITER_SYSTEM_GROUP = (
 )
 
 
+# U1 legacy-half clause for the GROUP writer — the ACTUAL active legacy-enrichment prose producer under
+# Gate-B (PG_SYNTH_PRIMARY => group_mode). Appended to the group writer's system + lead ONLY when
+# PG_NARRATIVE_CLOSING_SYNTHESIS is on AND group_mode is selected, so OFF-state (and the whole
+# non-group path) stays byte-identical. The unchanged writer-verify + strict_verify tail still decides
+# every sentence; an unsupported closer is dropped and stays dropped. No admission/entailment/canary/
+# post-gen machinery — a pre-generation prompt permission only. It respects the group contract's
+# no-new-aggregate rule (it forbids any new number) and carries only the spans' existing tokens.
+_U1_GROUP_CLOSING_CLAUSE = (
+    " You MAY end the paragraph with ONE closing synthesis sentence stating what the spans you just "
+    "wrote JOINTLY IMPLY — a mechanism, boundary, reconciliation, or consequence that follows only "
+    "from those sentences. It must introduce NO new number, percentage, date, unit, named entity, "
+    "study, metric, outcome, or population beyond the spans above, must not merge any numbers into a "
+    "new aggregate, and must end with the exact provenance token(s) of the spans it combines. If no "
+    "non-trivial joint implication exists, do not write it."
+)
+_U1_GROUP_CLOSING_LEAD = (
+    " You MAY close the paragraph with ONE synthesis sentence stating what the spans jointly imply "
+    "(a mechanism, boundary, reconciliation, or consequence), introducing no new number or entity "
+    "and ending with the provenance token(s) of the spans it combines; omit it if none exists."
+)
+
+
 def _build_writer_prompt(
     members: list,
     evidence_pool: dict,
@@ -474,6 +496,13 @@ def _build_writer_prompt(
             "with plain connectives, but never state a fact not present in a provided span, and "
             "never merge two spans' numbers into a new aggregate."
         )
+        # U1 legacy-half (§4): when PG_NARRATIVE_CLOSING_SYNTHESIS is on, extend the group lead with
+        # the one optional closing-synthesis permission. Flag-gated => OFF-state lead byte-identical.
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            closing_synthesis_enabled as _closing_synthesis_on,
+        )
+        if _closing_synthesis_on():
+            lead = f"{lead}{_U1_GROUP_CLOSING_LEAD}"
     else:
         lead = (
             "Rewrite each verified evidence span below into ONE clean, plain, declarative "
@@ -538,6 +567,15 @@ async def _call_writer(
         members, evidence_pool, revise_reasons=revise_reasons, group_mode=group_mode,
     )
     system = _WRITER_SYSTEM_GROUP if group_mode else _WRITER_SYSTEM
+    # U1 legacy-half (§4): reach the ACTIVE Gate-B legacy producer (the group writer). Append the one
+    # optional closing-synthesis permission to the group contract ONLY when the flag is on and
+    # group_mode is selected. Flag-gated + group-only => OFF-state / non-group `system` byte-identical.
+    if group_mode:
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            closing_synthesis_enabled as _closing_synthesis_on,
+        )
+        if _closing_synthesis_on():
+            system = f"{system}{_U1_GROUP_CLOSING_CLAUSE}"
     client = OpenRouterClient(model=model)
     # §9.1.8: a NEGATIVE/zero reasoning cap is the "unset" sentinel -> pass None so GLM-5.2's
     # _ALWAYS_REASON branch runs at effort=high (its default) instead of a starving fixed cap.

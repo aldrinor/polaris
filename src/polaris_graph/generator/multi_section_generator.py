@@ -3766,6 +3766,31 @@ _NARRATIVE_ATTRIBUTION_DIRECTIVE = (
 )
 
 
+# U1 legacy-enrichment twin (PG_NARRATIVE_CLOSING_SYNTHESIS). The clean, pre-generation Phase-3
+# rule: permit ONE optional paragraph-closing inference sentence derived only from that paragraph's
+# already-cited findings, introducing no new number/entity and carrying the union of that
+# paragraph's existing [ev_XXX] markers. The UNCHANGED per-sentence verifier still checks it; if it
+# is unsupported it is dropped and stays dropped. No admission/entailment/canary/post-gen machinery.
+# Appended as a per-call system-message suffix ONLY when the flag is on, so the off-state prompt is
+# byte-identical to HEAD (the module template SECTION_SYSTEM_PROMPT_TEMPLATE is never mutated).
+_U1_LEGACY_CLOSING_RULE = (
+    "OPTIONAL CLOSING SYNTHESIS: You MAY close a paragraph with ONE synthesis sentence stating "
+    "what that paragraph's already-cited findings jointly imply — a mechanism, boundary, "
+    "reconciliation, or consequence that follows only from the sentences you wrote above it. It "
+    "must introduce NO new number, percentage, date, unit, named entity, study, metric, outcome, "
+    "or population not already present above it, and it must end with the [ev_XXX] markers of the "
+    "findings it combines (drawn only from that paragraph's existing markers). If no non-trivial "
+    "joint implication exists, do not write it — never add a sentence solely to synthesize."
+)
+_U1_LEGACY_CLOSING_RETRY_REMINDER = (
+    "\n\nONE PERMITTED EXCEPTION: a paragraph MAY end with a single synthesis sentence stating "
+    "what that paragraph's own cited findings jointly imply, introducing no new number or entity "
+    "and ending with the [ev_XXX] markers of the findings it combines. That closing sentence is "
+    "the only one that draws on more than one prior sentence; it is finished section body, not "
+    "planning text."
+)
+
+
 _BASKET_BODY_RULE_7 = (
     "7. Do not write a top-level section heading, title, or preamble. Organize the body into "
     "coherent paragraphs, each developing a supported cross-source relationship. Do not use "
@@ -4197,6 +4222,14 @@ async def _call_section(
             "Use this map to explain convergence, conflict, and contextual boundaries across "
             "sections. Cite only the evidence identifiers shown in the map; do not invent a relation."
         )
+    # U1 legacy-enrichment twin (§4): when PG_NARRATIVE_CLOSING_SYNTHESIS is on, permit the one
+    # optional paragraph-closing inference sentence. Pre-generation prompt-only; the existing
+    # per-sentence verifier still decides. Off (the default) => `system` byte-identical to HEAD.
+    from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+        closing_synthesis_enabled as _closing_synthesis_on,
+    )
+    if _closing_synthesis_on():
+        system = f"{system}\n\n{_U1_LEGACY_CLOSING_RULE}"
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of numbers, identifiers, and
@@ -4478,6 +4511,14 @@ async def _call_section(
                 "that evidence's direct_quote. When in doubt, cite multiple "
                 "sources or drop the claim."
             )
+        # U1 legacy twin (§4), retry contract: reconcile the strict "output only the finished
+        # body / every sentence cited" retry rules with the one permitted closing-synthesis
+        # sentence, so a retried section keeps the same permission. Flag-gated; off => no-op.
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            closing_synthesis_enabled as _closing_synthesis_on_retry,
+        )
+        if _closing_synthesis_on_retry():
+            system += _U1_LEGACY_CLOSING_RETRY_REMINDER
 
     # I-arch-004 F21 (#1255): thread the REAL research_question into the legacy
     # section prompt as FRAMING-ONLY context. The previous hardcoded placeholder
@@ -12042,7 +12083,7 @@ async def generate_multi_section_report(
         _off_topic_ev_ids: set[str] = set()
         _singleton_candidates: list[dict[str, str]] = []
         if route_all_baskets_enabled():
-            from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
+            from src.polaris_graph.generator.content_integrity_deletion_gate import (  # noqa: PLC0415
                 is_row_deletable_offtopic,
             )
             _claimed_ev_ids: set[str] = set()
@@ -12325,6 +12366,21 @@ async def generate_multi_section_report(
             set_reasoning_call_context,
         )
         _contract_system = PG_NARRATIVE_PROSE_SYSTEM_MESSAGE
+        # U1 (MASTER_ACTION_PLAN_V2_CLEAN §4): when the closing-synthesis flag is ON, the system
+        # message must PERMIT the one bounded closing synthesis sentence the user prompt allows —
+        # otherwise the system's "introduce no ... claim" rule contradicts the user prompt. Per-call
+        # local suffix (the module constant PG_NARRATIVE_PROSE_SYSTEM_MESSAGE is NOT mutated) => OFF is
+        # byte-identical. No new factual token is licensed; the existing per-sentence verifier is unchanged.
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            closing_synthesis_enabled as _closing_synthesis_on,
+        )
+        if _closing_synthesis_on():
+            _contract_system = (
+                f"{_contract_system} You MAY end the paragraph with ONE synthesis sentence "
+                "deriving what the provided fields jointly imply — a mechanism, boundary, "
+                "reconciliation, or consequence — introducing no number, metric, entity, or "
+                "outcome that is not already present verbatim in the provided fields."
+            )
         from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
             narrative_attribution_enabled as _contract_attribution_on,
         )
