@@ -120,6 +120,25 @@ Wave-1 stage map, all carried-over charter/canary/exact-binding/complete-route r
 re-baseline (needs budget go) + build Stage 1. Phase-3 audit's "_compose_section_per_basket = sole producer"
 premise REPLACED by the V30 hybrid dispatch.
 
+**ROLLBACK + PHASE-4 RE-RUN (operator-directed 2026-07-24) — THE KEY COURSE CORRECTION:** The operator caught that
+the Wave-1 build (Sol-SOLO gates v1-v4) had drifted into the HARD-BANNED faith-ghost apparatus: runtime
+LicensedInference ADMISSION CANARY + OPERATOR_LICENSE ENTAILMENT predicate + exact emitted==admitted binding across
+~27 routes + non-scoreable-on-mismatch suppression = [[no-entailment-ever-rule]] + [[no-post-generation-fix-rule]]
+violation. ROOT CAUSE: (a) seed entered Phase-4 C2 (Sol's "admission canary + permitted reasoning operator" language
+that I consolidated ALONGSIDE and CONTRADICTING Fable's own "no entailment/NLI machinery" rule — my consolidation
+error); (b) I ran the Wave-1 BUILD gate SOLO-SOL, dropping Fable, so nobody invoked the charter's own no-ghost rule
+for 5 rounds. LESSON: Phase 1-3 + Fable's charter half were CLEAN (generalized, no overfit, pre-gen prompt + a TEST);
+never run a single-model build gate; hold the ghost bans over Sol's correctness-maximizing. ACTION: roll back to clean
+Phase 3; committed rollback (bdeceb75) — MASTER_ACTION_PLAN §12 + C2 VOID flag; discard Wave-1 specs v1-v4/Stage-1 +
+all AnalyticalContract/canary/binding apparatus; KEEP the valid V30/task-72 facts (phase4_v30_retarget_verdict.md).
+RE-RAN PHASE 4 CLEAN with BOTH Fable+Sol (phase4_rerun_brief.md, HARD NO-GHOST mandate: pre-gen prompt/scope only,
+existing engine untouched, deterministic checks are TESTS not runtime gates, drop-lever-if-not-clean, measure-first vs
+V30-on/task-72 baseline). Outputs -> phase4b_sol_verdict.md + phase4b_fable_verdict.md (Fable agent a39804860cba87a5a).
+U1 clean form = pre-gen narrative-prompt change permitting one paragraph-closing synthesis sentence, verified by the
+EXISTING per-sentence verifier, TEST=paragraph_deduction_rate+zero-new-number; if stripped/flat -> DROP. NEXT: verify
+both receipts -> lossless consolidate the CLEAN Phase-4 -> operator sign-off -> Stage-0 lineage seam + re-baseline ->
+build smallest lever, both-gated.
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
