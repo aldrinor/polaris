@@ -4239,12 +4239,20 @@ _SMOKE_SCALE_OVERRIDES: dict[str, str] = {
 }
 
 
-def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
+def apply_full_capability_benchmark_slate(
+    smoke_scale: bool = False, is_clinical: bool = True
+) -> None:
     """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
 
     ``smoke_scale=True`` (the --smoke-scale flag) force-applies ``_SMOKE_SCALE_OVERRIDES`` AFTER the
     floor loop (bypassing max()), shrinking INPUT breadth + timeout backstops for a ~25-35 min plumbing
     smoke. Faithfulness gates, the A20 funnel, and the 4-role seam are NOT touched. Default OFF.
+
+    ``is_clinical`` (default True — byte-identical for every existing caller/test) selects the PDF
+    extractor: a NON-clinical run (is_clinical=False) overrides the slate's ``mineru25`` clinical-PDF
+    winner to the ``docling`` fallback, because mineru25 CONDITIONALLY fires only on a fetched clinical
+    PDF and would never run for a non-clinical corpus — see the domain-aware seam below. Clinical runs
+    (default) keep the force-EXACT mineru25 pin unchanged.
 
     Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
     puts .env values into ``os.environ`` BEFORE this slate runs, so a conservative .env default
@@ -4290,6 +4298,27 @@ def apply_full_capability_benchmark_slate(smoke_scale: bool = False) -> None:
     # 4-role D8 / provenance / span-grounding) re-grounds every claim from the extracted text regardless.
     os.environ.setdefault("PG_MINERU25_BACKEND", "vlm-http-client")
     os.environ.setdefault("PG_MINERU25_SERVER_URL", "http://127.0.0.1:30024")
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # DOMAIN-AWARE PDF-EXTRACTOR SEAM (non-clinical → docling). ``mineru25`` is the CLINICAL-PDF
+    # W4 winner and its firing marker is CONDITIONAL — it fires ONLY when a clinical PDF is fetched
+    # (``W4_clinical_pdf_mineru25``, ``conditional=True``). A NON-CLINICAL run (workforce / policy /
+    # tech / due_diligence / general …; is_clinical_domain(q["domain"]) is False) never fetches a
+    # clinical PDF, so mineru25 never fires — the documented faithful fallback docling→PyMuPDF is what
+    # actually extracts every source ("every source kept"). Forcing mineru25 there only makes the run
+    # DEPEND on a GPU-VLM server that will never be exercised: the W4 backend preflight
+    # (_assert_mineru25_http_backend_ready) HARD-FAILS a box with no MinerU even though the extractor
+    # is dead code for that run. So for a non-clinical run OVERRIDE the extractor to docling (the same
+    # value the --smoke-scale path pins for the same GPU-avoidance reason). The CLINICAL path is
+    # UNCHANGED: is_clinical defaults True (every existing caller / test) and clinical Gate-B keeps the
+    # slate's force-EXACT mineru25 + the fail-loud backend preflight. The winner value-equals assertion
+    # (assert_full_capability_slate_applied) and preflight_full_capability BOTH take the same is_clinical
+    # signal so the asserted value stays consistent with the applied value (never assert mineru25 while
+    # the env is docling). FAITHFULNESS-NEUTRAL: docling→PyMuPDF re-extracts the SAME PDF body; the
+    # FROZEN faithfulness engine (strict_verify / NLI / span-grounding / 4-role) re-grounds every claim
+    # from the extracted text regardless of WHICH extractor produced it. This is a capability-gate seam,
+    # not a content/faithfulness lever.
+    if not is_clinical:
+        os.environ["PG_CLINICAL_PDF_EXTRACTOR"] = "docling"
     # ─────────────────────────────────────────────────────────────────────────────────────────────
     # R1_deepener_enable: ENABLE the citation-snowball evidence deepener — the recall lever for the
     # blocked-reference / primary-starved corpus (task72: adequacy='proceed' + fully covered, but
@@ -4410,7 +4439,9 @@ def _winner_slate_prespend_assert_enabled() -> bool:
     return os.getenv("PG_WINNER_SLATE_PRESPEND_ASSERT", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
-def assert_full_capability_slate_applied(smoke_scale: bool = False) -> None:
+def assert_full_capability_slate_applied(
+    smoke_scale: bool = False, is_clinical: bool = True
+) -> None:
     """FAIL CLOSED (pre-spend, BEFORE the sweep import) if the full-capability slate did NOT actually land
     for a force-on / force-exact flag — i.e. a WINNER (esp. W2 ``PG_QGEN_FS_RESEARCHER``) would run silently
     DARK because a stray operator/.env value survived, or ``apply_full_capability_benchmark_slate``'s force
@@ -4443,6 +4474,13 @@ def assert_full_capability_slate_applied(smoke_scale: bool = False) -> None:
             _expected = _FULL_CAPABILITY_BENCHMARK_SLATE[_flag]
         else:
             continue
+        # DOMAIN-AWARE PDF-EXTRACTOR: a NON-clinical run's apply_full_capability_benchmark_slate
+        # overrides mineru25 -> docling (the CONDITIONAL clinical-PDF winner never fires off-clinical),
+        # so the EFFECTIVELY-applied value is docling. Assert docling here to stay consistent with what
+        # was applied (never assert mineru25 while the env is docling). Clinical (is_clinical=True,
+        # the default) is byte-identical.
+        if (not is_clinical) and _flag == "PG_CLINICAL_PDF_EXTRACTOR":
+            _expected = "docling"
         if os.environ.get(_flag) != _expected:
             mismatches.append((_flag, _expected, os.environ.get(_flag)))
     if mismatches:
@@ -4640,7 +4678,9 @@ def _assert_mineru25_http_backend_ready() -> None:
         )
 
 
-def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) -> None:
+def preflight_full_capability(
+    smoke_scale: bool = False, offline: bool = False, is_clinical: bool = True
+) -> None:
     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
     silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError.
 
@@ -4658,7 +4698,14 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
     assertion there is a false-fail, not a winner-dark catch. The 3 PURITY gates' STRUCTURAL checks
     (NO-LOSER, the W6/W7/W5 model-identity probes, SLATE-PURITY, W9) ALL stay unconditional — they are
     config-only and meaningful offline. The GPU-host probe is the LIVE-run host-capability check (the
-    no-GPU host silently runs the docling LOSER), so it binds only on the real paid run (offline=False)."""
+    no-GPU host silently runs the docling LOSER), so it binds only on the real paid run (offline=False).
+
+    ``is_clinical`` (default True — byte-identical for every existing caller/test) selects the PDF
+    extractor the winner value-equals assertion expects: a NON-clinical run (is_clinical=False) had its
+    slate override mineru25 -> docling (mineru25 is the CONDITIONAL clinical-PDF winner; it never fires
+    off-clinical), so this asserts docling and the mineru25 GPU/backend W4 probe self-skips (it gates on
+    PG_CLINICAL_PDF_EXTRACTOR == 'mineru25', now 'docling'). A CLINICAL run (default) still hard-requires
+    mineru25 + the fail-loud backend/GPU probes — behavior UNCHANGED."""
     # I-wire-001 (#1296): LOUD WARNING for the build-deferred section winner (W9 dedup — no run-path
     # consumer and no wiring flag; the I-wire-001 P1-2 dedup-agent reconcile confirmed it is neither a
     # standalone wire nor CRAG-transitive). W1 intent_frame GRADUATED to preflight-required at I-wire-001
@@ -4853,8 +4900,15 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
     # paths (the smoke genuinely loads Qwen3 embed/rerank etc.). §-1.3: docling extracts the PDF body, no
     # source dropped; mineru25-on-paid + its crash-isolation is the queued fix before the paid run.
     for _winner_flag, _winner_expected in _BENCHMARK_WINNER_EXACT_VALUE_ASSERTIONS.items():
-        if smoke_scale and _winner_flag == "PG_CLINICAL_PDF_EXTRACTOR":
-            _winner_expected = "docling"   # smoke: safe non-VLM PDF path; paid keeps mineru25
+        # DOMAIN-AWARE / SMOKE PDF-EXTRACTOR EXCEPTION (one key). mineru25 is the CLINICAL-PDF winner and
+        # fires only when a clinical PDF is fetched. A --smoke-scale run OR a NON-clinical run pins the
+        # safe docling->PyMuPDF fallback (the smoke to dodge the GPU-VLM SIGABRT; the non-clinical run
+        # because mineru25 would never fire and its backend preflight would falsely hard-fail a no-MinerU
+        # box). In either case apply_full_capability_benchmark_slate applied docling, so assert docling
+        # here. The PAID CLINICAL run (is_clinical=True default, non-smoke) still requires the slate's
+        # mineru25. All OTHER winners stay asserted on every path.
+        if _winner_flag == "PG_CLINICAL_PDF_EXTRACTOR" and (smoke_scale or not is_clinical):
+            _winner_expected = "docling"   # smoke/non-clinical: safe non-VLM PDF path; clinical keeps mineru25
         _winner_value = os.getenv(_winner_flag, "").strip()
         if _winner_value != _winner_expected:
             raise RuntimeError(
@@ -5632,18 +5686,28 @@ async def run_gate_b_query(
     any test — the seam test exercises `run_four_role_seam` with a fake transport directly.
     Imported lazily so this module's import never pulls the big sweep file.
     """
+    # DOMAIN-AWARE PDF-EXTRACTOR SEAM: resolve the deterministic, no-LLM clinical signal from this
+    # query's registered domain (the SWEEP_QUERIES entry's ``domain`` — task-72 "workforce", the four
+    # clinical slugs "clinical", etc.). is_clinical_domain(domain) is the canonical B9 backbone: it is
+    # True IFF domain == "clinical" (any other KNOWN domain -> False; blank -> a positive text signal).
+    # Threaded into the slate / pre-spend assertion / preflight so a NON-clinical run uses the docling
+    # PDF fallback (mineru25 is the CONDITIONAL clinical-PDF winner and never fires off-clinical) and
+    # SKIPS the mineru25 GPU/backend preflight, while a CLINICAL run is byte-identical (still force
+    # mineru25 + require it). NOT a task-72 literal — a general domain signal reused from domain_signal.
+    from src.polaris_graph.domain.domain_signal import is_clinical_domain  # noqa: PLC0415
+    _is_clinical_task = is_clinical_domain(q.get("domain"))
     # I-cap-005 (#1068) KEYSTONE: apply the full-capability slate BEFORE importing the sweep, so the
     # sweep's IMPORT-TIME module constants (content cap / timeouts / workers) also see the full values
     # — not just the call-time PG_SWEEP_* knobs. This is what makes a Gate-B run full-depth regardless
     # of the operator's shell env (the prior ~40-URL throttle was a missing/wrong-named slate).
-    apply_full_capability_benchmark_slate(smoke_scale=smoke_scale)
+    apply_full_capability_benchmark_slate(smoke_scale=smoke_scale, is_clinical=_is_clinical_task)
     # I-deepfix-001 (#1344) FIX 2 — PRE-SPEND WINNER-SLATE ASSERTION (pre-import, pre-spend). Fail CLOSED
     # HERE if the slate did not land a force-on / force-exact winner (esp. W2 PG_QGEN_FS_RESEARCHER) — the
     # drb_72 silent dark-winner class where the running process ran a NON-WINNER config and the only marker
     # check was POST-run (after full spend). This is the EARLIEST tripwire: it runs BEFORE the heavy sweep
     # import below and long before preflight_full_capability at the token boundary. Env kill-switch
     # (PG_WINNER_SLATE_PRESPEND_ASSERT) default-ON; faithfulness-neutral (reads env + slate constants only).
-    assert_full_capability_slate_applied(smoke_scale=smoke_scale)
+    assert_full_capability_slate_applied(smoke_scale=smoke_scale, is_clinical=_is_clinical_task)
     # I-deepfix-001 (#1344) DRB-II COVERAGE LEVERS — PRE-SPEND assertion (pre-import, pre-spend). Fail CLOSED
     # HERE if any of the 8 weight-and-consolidate breadth levers (facet outline / route-all-baskets / evidence
     # + word budget tracks payload / expert facet planner / facet completeness / qualifier elaboration / facet-
@@ -5938,7 +6002,9 @@ async def run_gate_b_query(
     # I-deepfix-001 (#1344): offline=(transport injected) skips ONLY the WINNER-FIRES GPU-host probes
     # (W4/W5) — an offline/unit-test run has no GPU and spends no token, so a GPU assertion there is a
     # false-fail. The NO-LOSER / model-identity / SLATE-PURITY / W9 purity gates all stay unconditional.
-    preflight_full_capability(smoke_scale=smoke_scale, offline=(transport is not None))
+    preflight_full_capability(
+        smoke_scale=smoke_scale, offline=(transport is not None), is_clinical=_is_clinical_task
+    )
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:
