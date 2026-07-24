@@ -149,3 +149,7 @@ external-citation claim contract (U14).
 Each lever: build behind an off-state byte-identity check, deterministic test at the emitted-report seam, **both**
 Fable+Sol diff-gate + ghost-audit, then the 3v3 paired probe vs the last approved state. No apparatus rescues a
 failing lever — it drops.
+
+---
+
+## SIGN-OFF — operator approved 2026-07-24. Building Stage-0 (lineage seam, both-gated) then the 3-draw V30-on/task-72 re-baseline (~6 gens approved), then U1. Every diff both-gated (Fable+Sol) + ghost-audited per GHOST_BAN.md.
