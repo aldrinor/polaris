@@ -12398,6 +12398,14 @@ async def generate_multi_section_report(
             _contract_system = (
                 f"{_contract_system}\n\n{_NARRATIVE_ATTRIBUTION_DIRECTIVE}"
             )
+        # Retargeted U3/U4/U7/U10 (PG_ANALYTICAL_SYNTHESIS): append the one conditional analytical-
+        # synthesis directive to the ACTIVE V30 contract-narrative system. Flag-gated => OFF byte-identical.
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            analytical_synthesis_enabled as _analytical_synthesis_on,
+            ANALYTICAL_SYNTHESIS_DIRECTIVE as _analytical_synthesis_directive,
+        )
+        if _analytical_synthesis_on():
+            _contract_system = f"{_contract_system}\n\n{_analytical_synthesis_directive}"
         client = OpenRouterClient(model=gen_model)
         try:
             # I-gen-004 (#496): tag the V30 contract-slot NARRATIVE call. Reuse the

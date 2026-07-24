@@ -137,16 +137,46 @@ def is_debate_question(text: str) -> bool:
     return bool(_DEBATE_RE.search(str(text or "")))
 
 
-def _angle_lenses_for(n_angles: int, debate_active: bool) -> tuple[tuple[str, str], ...]:
+# U5b (typed-facet-query breadth): the 4 ANALYTICAL-TYPE lenses. The base ``_ANGLE_LENSES`` are
+# analytical VANTAGE points (mechanism/stakeholder/counter/temporal/geographic); these are analytical
+# QUESTION TYPES (factual/causal/comparative/critical) that widen coverage toward the dimensions RACE
+# Comprehensiveness rewards. Additive ONLY, ADDED to the seed frontier when PG_QGEN_TYPED_FACET_QUERIES
+# is ON — they do NOT raise any fetch budget/cap (they compete for the existing max-queries budget:
+# breadth REALLOCATION, not a budget raise), and every emitted query still routes through the UNCHANGED
+# run_live_retrieval + scope-gate + provenance/faithfulness path. Default OFF => byte-identical.
+_TYPED_FACET_LENSES: tuple[tuple[str, str], ...] = (
+    ("factual", "measured evidence data findings on"),
+    ("causal", "causes drivers why the mechanism behind"),
+    ("comparative", "compared with versus difference across cases of"),
+    ("critical", "critical assessment methodological limitations of the evidence on"),
+)
+
+
+def _typed_facet_queries_enabled() -> bool:
+    """U5b flag gate: append the 4 typed-facet lenses (factual/causal/comparative/critical) to widen
+    query-type coverage. LAW VI env kill-switch; default OFF => byte-identical legacy behaviour."""
+    return resolve("PG_QGEN_TYPED_FACET_QUERIES").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _angle_lenses_for(
+    n_angles: int, debate_active: bool, typed_active: bool = False,
+) -> tuple[tuple[str, str], ...]:
     """The angle lenses to emit for a facet. Default = ``_ANGLE_LENSES[:n_angles]`` (byte-identical).
     When ``debate_active`` (``PG_TWO_SIDED_DEBATE`` ON + debate-framed question), the ``counter_evidence``
     lens is GUARANTEED present even if the budget would have truncated it — the con side must be
-    retrieved for a debate query. Additive only; the base slice order is preserved."""
+    retrieved for a debate query. When ``typed_active`` (U5b, ``PG_QGEN_TYPED_FACET_QUERIES`` ON), the 4
+    typed-facet lenses are APPENDED (by label, de-duplicated). Additive only; the base slice order is
+    preserved; both flags default OFF => byte-identical."""
     lenses = list(_ANGLE_LENSES[:n_angles])
     if debate_active and not any(label == _COUNTER_EVIDENCE_LABEL for label, _ in lenses):
         ce = next((l for l in _ANGLE_LENSES if l[0] == _COUNTER_EVIDENCE_LABEL), None)
         if ce is not None:
             lenses.append(ce)
+    if typed_active:
+        seen_labels = {label for label, _ in lenses}
+        for label, phrase in _TYPED_FACET_LENSES:
+            if label not in seen_labels:
+                lenses.append((label, phrase))
     return tuple(lenses)
 
 
@@ -210,6 +240,7 @@ def _question_anchor(question: str) -> str:
 
 def _facet_angle_queries(
     facet_name: str, anchor: str, n_angles: int, debate_active: bool = False,
+    typed_active: bool = False,
 ) -> list[str]:
     """Emit up to ``n_angles`` distinct facet-ANGLE queries for one facet, each scope-anchored.
 
@@ -223,7 +254,7 @@ def _facet_angle_queries(
     """
     out: list[str] = []
     seen: set[str] = set()
-    for label, lens in _angle_lenses_for(n_angles, debate_active):
+    for label, lens in _angle_lenses_for(n_angles, debate_active, typed_active):
         # facet first (primary subject), then the angle lens, then the scope anchor.
         q = f"{facet_name} {lens} {anchor}".strip()
         q = re.sub(r"\s+", " ", q)
@@ -276,6 +307,9 @@ def plan_expert_facets(question: str, llm: LlmFn, *, retrieval_policy: Any = Non
     # Wave-2d (#1344): guarantee the counter_evidence angle for a debate-framed question when
     # PG_TWO_SIDED_DEBATE is ON. Default OFF => debate_active is False => byte-identical.
     debate_active = two_sided_debate_enabled() and is_debate_question(question)
+    # U5b: PG_QGEN_TYPED_FACET_QUERIES ON => append the 4 typed-facet lenses (factual/causal/
+    # comparative/critical) to widen query-TYPE coverage. Default OFF => typed_active False => byte-identical.
+    typed_active = _typed_facet_queries_enabled()
 
     facet_names: list[str] = []
     try:
@@ -326,7 +360,7 @@ def plan_expert_facets(question: str, llm: LlmFn, *, retrieval_policy: Any = Non
 
     facets: list[Facet] = []
     for name in facet_names:
-        queries = _facet_angle_queries(name, anchor, n_angles, debate_active)
+        queries = _facet_angle_queries(name, anchor, n_angles, debate_active, typed_active)
         if retrieval_policy is not None:
             queries = _policy_scope_anchor(queries, retrieval_policy)
         if queries:

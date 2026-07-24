@@ -349,6 +349,7 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_EXA_SEARCH_TYPE': 'auto',
     'PG_EXPERT_FACET_MAX_FACETS': '12',
     'PG_EXPERT_FACET_PLANNER': '0',
+    'PG_QGEN_TYPED_FACET_QUERIES': '0',   # U5b: append typed-facet lenses (factual/causal/comparative/critical)
     'PG_EXPERT_FACET_SEED_ANGLES': '2',
     'PG_EXPLORE_MAX_NEW_PER_SECTION': '5',
     'PG_EXPLORE_SIMILARITY_THRESHOLD': '0.55',
@@ -902,6 +903,7 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # Carry author/venue/year metadata and the existing prominence weight into each
     # writer evidence block for narrative attribution. Default OFF.
     'PG_NARRATIVE_ATTRIBUTION': '',
+    'PG_ANALYTICAL_SYNTHESIS': '0',   # retargeted U3/U4/U7/U10: one conditional analytical-synthesis directive
     # Build complete per-facet evidence packs and emit a coverage ledger. Default OFF.
     'PG_FACET_EVIDENCE_PACKS': '',
     # Proposition/support/conflict grouping plus a report-wide relation map.

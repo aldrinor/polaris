@@ -698,6 +698,34 @@ def closing_synthesis_enabled() -> bool:
     return os.getenv(_ENV_CLOSING_SYNTHESIS, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+_ENV_ANALYTICAL_SYNTHESIS = "PG_ANALYTICAL_SYNTHESIS"
+
+
+def analytical_synthesis_enabled() -> bool:
+    """Retargeted U3/U4/U7/U10 kill-switch (DEFAULT OFF => byte-identical). ON => the active-writer
+    system prompt gains ONE coherent, CONDITIONAL analytical-synthesis directive (explain divergence /
+    compare measure-across-context / name a cross-cutting proposition + its test / ground an implication
+    or gap) — all keyed on 'where the evidence supports it, never forced', introducing no new content and
+    keeping every citation marker (the unchanged verifier still decides)."""
+    return os.getenv(_ENV_ANALYTICAL_SYNTHESIS, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+# Retargeted U3/U4/U7/U10 as ONE coherent, CONDITIONAL directive appended (flag-gated) to the ACTIVE
+# Gate-B writers (the V30 _m63 contract narrative + the abstractive GROUP writer — the same seams U1
+# uses; the plan's dead skeleton/relation-pack flags are bypassed on Gate-B). Every clause is keyed on
+# "where the cited findings support it — never forced", introduces NO new content, and keeps the
+# citation marker, so the UNCHANGED per-sentence verifier still drops anything unsupported. Prompt-only.
+ANALYTICAL_SYNTHESIS_DIRECTIVE = (
+    "ANALYTICAL DEPTH (optional; only where the cited findings support it, never invented to satisfy this, "
+    "and only within the paragraph's normal prose and its at-most-one optional closing synthesis sentence): "
+    "where warranted — explain a divergence by naming its boundary (population, method, measure, or period); "
+    "compare findings that share a measure across different contexts; state, as provisional, a cross-cutting "
+    "claim several findings jointly support and what would confirm or overturn it; or tie an implication or "
+    "gap to the mechanism it rests on. Add no new number, entity, study, or claim beyond the cited findings; "
+    "keep every citation marker."
+)
+
+
 def _narrative_length_guidance(n_facts: int, allow_closing_synthesis: bool = False) -> str:
     """I-deepfix-001 FIX-D part 1 (#1335, §-1.3): CONTENT-DRIVEN length instruction. One clear
     sentence per DISTINCT fact, NO lower floor; an env-overridable UPPER ceiling only (LAW VI). With

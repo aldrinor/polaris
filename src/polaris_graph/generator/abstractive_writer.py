@@ -576,6 +576,15 @@ async def _call_writer(
         )
         if _closing_synthesis_on():
             system = f"{system}{_U1_GROUP_CLOSING_CLAUSE}"
+        # Retargeted U3/U4/U7/U10 (PG_ANALYTICAL_SYNTHESIS): append the one conditional analytical-
+        # synthesis directive to the ACTIVE group-writer system. Flag-gated + group-only => OFF /
+        # non-group `system` byte-identical.
+        from src.polaris_graph.generator.slot_fill import (  # noqa: PLC0415
+            analytical_synthesis_enabled as _analytical_synthesis_on,
+            ANALYTICAL_SYNTHESIS_DIRECTIVE as _analytical_synthesis_directive,
+        )
+        if _analytical_synthesis_on():
+            system = f"{system}\n\n{_analytical_synthesis_directive}"
     client = OpenRouterClient(model=model)
     # §9.1.8: a NEGATIVE/zero reasoning cap is the "unset" sentinel -> pass None so GLM-5.2's
     # _ALWAYS_REASON branch runs at effort=high (its default) instead of a starving fixed cap.
