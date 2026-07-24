@@ -4821,6 +4821,25 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
             f"profile runs instead, admitting more page-furniture spans). Set "
             f"PG_HTML_EXTRACTOR=trafilatura_precision before the run."
         )
+    # STAGE-0 LINEAGE SEAM (question-lineage selector): PG_BENCHMARK_QUESTION_LINEAGE is a STRING
+    # selector, so it cannot ride the truthy required-flags loop. It is NOT a required flag — UNSET
+    # is the valid default (drb_ii_idx = today's behavior, byte-identical). Assert ONLY that, WHEN
+    # SET, its value is on the allowlist — reject an unknown/typo'd lineage BEFORE spend rather than
+    # after (a mis-typed selector must never silently score the default lineage). FAITHFULNESS-NEUTRAL
+    # (selects which canonical question text binds; touches no gate/verdict). Uses gate0_lineage's
+    # allowlist so the accepted set has ONE source of truth.
+    from scripts.dr_benchmark.gate0_lineage import (
+        ALLOWED_LINEAGES as _GATE0_ALLOWED_LINEAGES,
+        LINEAGE_SELECTOR_ENV as _GATE0_LINEAGE_ENV,
+    )
+    _lineage_raw = os.getenv(_GATE0_LINEAGE_ENV, "").strip()
+    if _lineage_raw and _lineage_raw not in _GATE0_ALLOWED_LINEAGES:
+        raise RuntimeError(
+            f"benchmark preflight FAILED: {_GATE0_LINEAGE_ENV}={_lineage_raw!r} is not an allowed "
+            f"question lineage — allowed: {sorted(_GATE0_ALLOWED_LINEAGES)} (unset => the default "
+            f"drb_ii_idx). Fix the selector before the run (a typo would silently score the wrong "
+            f"lineage)."
+        )
     # I-wire-001 (#1296): value-equals assertions for the 4 STRING (model-selector) section winners —
     # they cannot ride the truthy required-flags loop above ("qwen3"/"mineru25"/"Qwen/Qwen3-Reranker-0.6B"
     # are not "1"), the SAME reason PG_RELEVANCE_SCORER is asserted separately. Fail CLOSED so a dropped
@@ -5671,12 +5690,59 @@ async def run_gate_b_query(
         _official_slug = q.get("slug")
         from scripts.dr_benchmark.gate0_lineage import (
             DRB_SLUGS_WITHOUT_CANONICAL_GOLD as _GATE0_NO_GOLD,
+            LINEAGE_LEGACY_RACE_TASK as _GATE0_LINEAGE_LEGACY,
             SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
+            SLUG_TO_LEGACY_TASK as _GATE0_SLUG_TO_LEGACY,
             canonical_question_for_slug as _gate0_canonical_q,
             is_benchmark_slug as _gate0_is_benchmark_slug,
+            assert_legacy_slug_supported as _gate0_assert_legacy_supported,
+            lineage_from_env as _gate0_lineage_from_env,
+            questions_raw_and_sha_equal as _gate0_raw_and_sha_equal,
             sha256_text as _gate0_sha,
         )
-        if _official_slug in _GATE0_SLUG_TO_IDX:
+        # STAGE-0 LINEAGE SEAM: the selector decides WHICH canonical the "official" question binds
+        # to. Default ``drb_ii_idx`` = today's DRB-II idx override (byte-identical). Under
+        # ``legacy_race_task`` "official" = the legacy DeepResearch-Bench (RACE) task question — the
+        # SAME question score_report_race.py --task-id scores against — so a Gate-B/V30 run answers the
+        # legacy task single-brained. FAITHFULNESS-NEUTRAL: only the input question text changes.
+        _gate0_lineage = _gate0_lineage_from_env()
+        # STAGE-0 LINEAGE SEAM (FIX 1 — no-gold fail-open): under legacy, reject EVERY benchmark slug
+        # with no SLUG_TO_LEGACY_TASK mapping via the SHARED helper (the SAME check the direct sweep
+        # calls, so the two cannot drift) — a canonically-mapped slug AND an explicit no-gold slug
+        # (e.g. drb_90_adas_liability) alike, never a silent fall-through to the DRB-II idx question.
+        if _gate0_lineage == _GATE0_LINEAGE_LEGACY:
+            _gate0_assert_legacy_supported(_official_slug)
+        if _gate0_lineage == _GATE0_LINEAGE_LEGACY and _official_slug in _GATE0_SLUG_TO_LEGACY:
+            # LEGACY: NEVER trust the registered SWEEP string blindly. Resolve the legacy canonical
+            # (query.jsonl by id) and ASSERT the raw registered question already EQUALS it — a future
+            # SWEEP edit that drifts the registered question must FAIL LOUD here (before spend), not
+            # silently recreate the wrong question. Then keep the registered question (they are equal)
+            # and attach a legacy-only lineage marker to the copied dict.
+            _legacy_question = _gate0_canonical_q(
+                _official_slug, lineage=_GATE0_LINEAGE_LEGACY
+            )
+            _raw_registered = q.get("question", "")
+            # RAW-byte AND normalized-SHA equality (v2): a SHA-only check accepts whitespace drift.
+            # The registered SWEEP question must be the SAME bytes as the legacy canonical.
+            if not _gate0_raw_and_sha_equal(_raw_registered, _legacy_question):
+                raise ValueError(
+                    f"PG_BENCHMARK_QUESTION_LINEAGE=legacy_race_task: the raw registered SWEEP "
+                    f"question for slug {_official_slug!r} does NOT equal the legacy canonical "
+                    f"(query.jsonl id {_GATE0_SLUG_TO_LEGACY[_official_slug]}) as RAW bytes — "
+                    f"refusing to run a split-brained legacy benchmark (the SWEEP question drifted "
+                    f"from the legacy task).\n  registered(sha)={_gate0_sha(_raw_registered)[:16]}"
+                    f"\n  legacy(sha)    ={_gate0_sha(_legacy_question)[:16]}"
+                )
+            print(
+                f"[OFFICIAL-QUESTION] slug {_official_slug}: legacy_race_task lineage — registered "
+                f"SWEEP question CONFIRMED == legacy canonical (query.jsonl id "
+                f"{_GATE0_SLUG_TO_LEGACY[_official_slug]}); kept for the run."
+            )
+            q = {**q, "question": _legacy_question, "question_lineage": _GATE0_LINEAGE_LEGACY}
+        # (Under legacy, any benchmark slug NOT in _GATE0_SLUG_TO_LEGACY already failed loud via
+        # _gate0_assert_legacy_supported above — so only a mapped legacy slug reaches the branch
+        # above; the DRB-II idx / no-gold branches below run only under the default lineage.)
+        elif _official_slug in _GATE0_SLUG_TO_IDX:
             _official_question = _gate0_canonical_q(_official_slug)
             if _gate0_sha(q.get("question", "")) != _gate0_sha(_official_question):
                 print(

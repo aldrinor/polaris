@@ -98,6 +98,7 @@ def save_corpus_snapshot(
     retrieval: Any,
     section_drafts: dict[str, Any] | None = None,
     stage: str = STAGE_PRE_GENERATION,
+    lineage: str | None = None,
 ) -> Path:
     """Persist the pre-generation corpus snapshot. Returns the written path.
 
@@ -108,6 +109,12 @@ def save_corpus_snapshot(
     keyed by section heading). It carries DRAFT PROSE ONLY — never a verified flag.
     On resume the caller re-runs strict_verify on every reloaded draft; the snapshot
     cannot smuggle a cached verdict because none is stored.
+
+    STAGE-0 LINEAGE SEAM: ``lineage`` is a LEGACY-ONLY identity field. On the default
+    (``drb_ii_idx``/``None``) path it is OMITTED, so the serialized JSON is byte-identical
+    to HEAD. On a ``legacy_race_task`` run it is stored so ``load_corpus_snapshot`` can REFUSE
+    to resume a frozen-corpus checkpoint under a MISMATCHED lineage (a snapshot answered under
+    one lineage must never be re-used under the other — the 3-draw frozen-corpus resume guard).
     """
     run_dir = Path(run_dir)
     payload: dict[str, Any] = {
@@ -124,6 +131,10 @@ def save_corpus_snapshot(
         # DRAFT PROSE ONLY (re-verified on resume); default empty.
         "section_drafts": dict(section_drafts or {}),
     }
+    # LEGACY-ONLY: add the lineage identity field ONLY when a non-default lineage is passed, so a
+    # default snapshot's JSON gains no key and stays byte-identical to HEAD.
+    if lineage is not None:
+        payload["lineage"] = lineage
     path = snapshot_path(run_dir)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
@@ -144,12 +155,19 @@ class CorpusSnapshotError(RuntimeError):
     """
 
 
-def load_corpus_snapshot(run_dir: Path) -> dict[str, Any]:
+def load_corpus_snapshot(
+    run_dir: Path, *, expected_lineage: str | None = None
+) -> dict[str, Any]:
     """Reload + validate the corpus snapshot for --resume. Returns the parsed payload.
 
     Raises CorpusSnapshotError on absent / malformed / version-mismatched / empty-
     corpus snapshots so the caller fails loud instead of resuming on bad data.
     Returns DATA ONLY — the caller MUST re-run every faithfulness gate on it.
+
+    STAGE-0 LINEAGE SEAM: when ``expected_lineage`` is supplied, REFUSE to resume a snapshot
+    whose stored lineage does not match (a snapshot missing the field is the default
+    ``drb_ii_idx`` lineage). ``None`` => no check => byte-identical to HEAD. This stops a
+    frozen-corpus resume from re-using a checkpoint answered under the OTHER lineage.
     """
     path = snapshot_path(run_dir)
     if not path.exists():
@@ -177,6 +195,16 @@ def load_corpus_snapshot(run_dir: Path) -> dict[str, Any]:
             f"--resume: corpus snapshot at {path} has an empty evidence_for_gen; refusing "
             f"to resume a run with no generator corpus"
         )
+    if expected_lineage is not None:
+        # A missing stored lineage is the default drb_ii_idx (legacy-only field). Refuse a
+        # cross-lineage resume (a corpus answered under the other lineage is the wrong corpus).
+        _stored_lineage = payload.get("lineage") or "drb_ii_idx"
+        if _stored_lineage != expected_lineage:
+            raise CorpusSnapshotError(
+                f"--resume: corpus snapshot at {path} was built under question lineage "
+                f"{_stored_lineage!r} but this run requests {expected_lineage!r} — refusing to "
+                f"resume on a corpus answered under a DIFFERENT lineage (split-brain lineage)."
+            )
     return payload
 
 
