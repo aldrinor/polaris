@@ -115,7 +115,22 @@ def load_task_output_contract(
 
     Returning ``None`` makes the gates a documented NO-OP for any benchmark task that does not
     declare a contract — the gate is general, never hardcoded to one slug.
+
+    STAGE-0 LINEAGE SEAM: the per-task output contract (idx-56's intent_anchors / required table)
+    is authored for the DRB-II lineage. Under ``PG_BENCHMARK_QUESTION_LINEAGE=legacy_race_task``
+    the run answers the LEGACY (RACE task) question and is scored by RACE task-72, NOT the DRB-II
+    output-contract rubric — so applying the idx-56 contract would FAIL-LOUD a legacy run AFTER
+    full spend (pre-spend assert, summary-table renderer, post-render validity gate all key on it).
+    Return ``None`` for legacy => the existing documented no-op at every consumer. DEFAULT lineage
+    (``drb_ii_idx``) is byte-identical (the selector is unread on the default path below). This ONE
+    gate covers all three consumers (run_gate_b pre-spend / renderer / run_validity_gate).
     """
+    from scripts.dr_benchmark.gate0_lineage import (
+        LINEAGE_LEGACY_RACE_TASK as _GATE0_LINEAGE_LEGACY,
+        lineage_from_env as _gate0_lineage_from_env,
+    )
+    if _gate0_lineage_from_env() == _GATE0_LINEAGE_LEGACY:
+        return None
     contract_file = Path(path) if path is not None else _contract_path()
     if not contract_file.is_file():
         return None

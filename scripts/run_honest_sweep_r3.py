@@ -1909,6 +1909,158 @@ def _quantified_readiness_failed(
     return True
 
 
+def _legacy_coverage_shortfall_report_only(
+    held_reasons: "list[str] | None", fabricated_occurrence_latched: bool
+) -> bool:
+    """STAGE-0 LINEAGE SEAM (FIX 3): may the idx-56 coverage-SHORTFALL blocker be downgraded to
+    report-only on a legacy_race_task run at the outer disposition seam?
+
+    True IFF the SOLE blocking held_reason is the native required-element coverage shortfall
+    (``d8_unsupported_residual_below_coverage``) — set-EQUALITY, never "contains" — AND no
+    FABRICATED occurrence latched. A legacy run is scored by RACE task-72, NOT the idx-56 coverage
+    rubric, so a coverage-only hold is report-only (the fraction/gaps stay disclosed). A fabrication
+    / S0-must-cover / pending-rewrite hold in ``held_reasons`` breaks set-equality and is NEVER
+    downgraded. A ZERO-GROUNDING hard block is NOT a held_reason — it rides on
+    ``ReleaseOutcome.hard_block`` / ``hard_block_reasons`` (separate fields), so this held_reasons-set
+    predicate CANNOT see it; the CALLER (``_legacy_coverage_downgrade_applies`` / the outer seam)
+    refuses the downgrade on ANY hard block. The CALLER also gates on the legacy lineage; this
+    predicate is lineage-agnostic + pure (testable). SEVERITY-only — touches NO faithfulness gate and
+    NO content; adds no cap/target."""
+    from src.polaris_graph.roles.release_policy import (
+        _REASON_UNSUPPORTED_RESIDUAL_BELOW_COVERAGE as _RP_REASON_COVERAGE_SHORTFALL,
+    )
+    if fabricated_occurrence_latched:
+        return False
+    return set(held_reasons or []) == {_RP_REASON_COVERAGE_SHORTFALL}
+
+
+def _legacy_coverage_downgrade_applies(
+    question_lineage: "str | None",
+    release_released: bool,
+    release_hard_block: bool,
+    release_hard_block_reasons: "list[str] | None",
+    held_reasons: "list[str] | None",
+    fabricated_occurrence_latched: bool,
+    summary_status: str,
+) -> bool:
+    """STAGE-0 LINEAGE SEAM (FIX A + FIX B): may the OUTER four-role disposition downgrade this
+    decision's coverage-shortfall HOLD to ``released_with_disclosed_gaps`` for a legacy run?
+
+    True IFF ALL of:
+      * FIX B — the CURRENT QUERY was actually rebound/stamped legacy (``question_lineage`` resolves
+        to ``legacy_race_task``). The GLOBAL env selector is NOT consulted here: a query that was
+        never legacy-bound (e.g. a non-benchmark query run while the selector happens to be set) must
+        NEVER be downgraded, even when the process-wide selector says legacy.
+      * FIX A — the release outcome has NO hard block: ``release_hard_block`` is False AND
+        ``release_hard_block_reasons`` is empty. Zero-grounding is represented OUTSIDE ``held_reasons``
+        as ``ReleaseOutcome.hard_block=True`` / ``hard_block_reasons=["zero_grounding"]``
+        (release_policy.py), so the set-equality coverage predicate below cannot see it — this guard
+        is what refuses to release a zero-grounded (or any hard-blocked) decision.
+      * the SOLE blocking held_reason is the native coverage shortfall (delegated to
+        ``_legacy_coverage_shortfall_report_only`` — set-EQUALITY, fabrication-latch-safe).
+      * the release outcome is a genuine HOLD (``release_released`` is False). An already-RELEASED
+        outcome — plain success, disclosed-gaps, OR the specialized insufficient-safety terminal — is
+        NEVER re-labelled: only a would-be HOLD downgrades, so an insufficient-safety (or any other
+        released) terminal status is never overwritten.
+
+    Pure + lineage-agnostic-in-signature (the caller passes the per-query marker) — SEVERITY-only;
+    touches NO faithfulness gate and NO content. DEFAULT (``drb_ii_idx``) lineage returns False."""
+    from scripts.dr_benchmark.gate0_lineage import (
+        LINEAGE_LEGACY_RACE_TASK as _GATE0_LINEAGE_LEGACY,
+        resolve_lineage as _gate0_resolve_lineage,
+    )
+    from src.polaris_graph.roles.release_policy import (
+        STATUS_RELEASED_WITH_DISCLOSED_GAPS as _RP_STATUS_DISCLOSED_GAPS,
+    )
+    # FIX B: per-query legacy marker, NOT the global env selector.
+    if _gate0_resolve_lineage(question_lineage) != _GATE0_LINEAGE_LEGACY:
+        return False
+    # FIX A: ANY hard block (zero-grounding / fabricated-with-redaction-off) refuses the downgrade.
+    if release_hard_block or (release_hard_block_reasons or []):
+        return False
+    # Do NOT overwrite an already-RELEASED or specialized terminal (insufficient-safety, etc.):
+    # only a would-be coverage HOLD downgrades. `release_released` True means the outcome already
+    # ships (success / disclosed-gaps / insufficient-safety) — nothing to downgrade, label preserved.
+    if release_released or summary_status in ("four_role_released", _RP_STATUS_DISCLOSED_GAPS):
+        return False
+    # Only a pure coverage-shortfall-ONLY, non-fabrication hold may downgrade.
+    if not _legacy_coverage_shortfall_report_only(
+        held_reasons, fabricated_occurrence_latched
+    ):
+        return False
+    return True
+
+
+def _apply_legacy_coverage_downgrade(
+    manifest: dict,
+    summary_status: str,
+    question_lineage: "str | None",
+    release_released: bool,
+    release_hard_block: bool,
+    release_hard_block_reasons: "list[str] | None",
+    held_reasons: "list[str] | None",
+    fabricated_occurrence_latched: bool,
+    log=None,
+) -> str:
+    """STAGE-0 LINEAGE SEAM (FIX 3 / FIX C): the ONE production mutation that downgrades a legacy
+    coverage-shortfall-ONLY HOLD to ``released_with_disclosed_gaps`` at the outer four-role
+    disposition. Extracted from ``run_one_query`` so the SAME code the caller runs is what the
+    disposition tests drive (no test-side replay of the mutation — Sol re-gate #2 §4 FIX C).
+
+    Decision is delegated verbatim to ``_legacy_coverage_downgrade_applies`` (FIX A + FIX B). When it
+    applies, this mutates ``manifest`` in place exactly as the original call-site seam did — flips
+    ``release_allowed`` True, appends the coverage-shortfall reason to ``disclosed_gaps``, latches the
+    ``legacy_coverage_shortfall_report_only`` marker — and returns the downgraded status string. When
+    it does NOT apply (DEFAULT drb_ii_idx lineage, any hard block, non-coverage hold, already-released
+    terminal), it is a NO-OP: ``manifest`` is untouched and the passed ``summary_status`` is returned
+    unchanged (byte-identical to HEAD on the default path). SEVERITY-only — touches NO faithfulness
+    gate and NO content; the coverage fraction / gaps telemetry the caller writes afterward is
+    unchanged, so the honest gap stays fully disclosed. ``log`` is the optional caller logger."""
+    from src.polaris_graph.roles.release_policy import (
+        _REASON_UNSUPPORTED_RESIDUAL_BELOW_COVERAGE as _RP_REASON_COVERAGE_SHORTFALL,
+    )
+    if _legacy_coverage_downgrade_applies(
+        question_lineage,
+        release_released,
+        release_hard_block,
+        release_hard_block_reasons,
+        held_reasons,
+        fabricated_occurrence_latched,
+        summary_status,
+    ):
+        if log is not None:
+            log(
+                "[four_role]   legacy_race_task: required-element coverage shortfall is "
+                "REPORT-ONLY (scored by RACE task-72, not the idx-56 coverage rubric) — "
+                f"downgrading {summary_status!r} -> released_with_disclosed_gaps; the coverage "
+                "fraction + gaps stay fully disclosed (severity-only, no content change)."
+            )
+        manifest["release_allowed"] = True
+        manifest.setdefault("disclosed_gaps", []).append(
+            _RP_REASON_COVERAGE_SHORTFALL
+        )
+        manifest["legacy_coverage_shortfall_report_only"] = True
+        summary_status = "released_with_disclosed_gaps"
+    return summary_status
+
+
+def _resume_effective_lineage(q: "dict | None") -> str:
+    """STAGE-0 LINEAGE SEAM (FIX 4 / FIX D): the ONE production resolution of a run's effective
+    corpus-snapshot lineage for a --resume cross-lineage guard.
+
+    The legacy marker rides on ``q["question_lineage"]`` (legacy-only, stamped at the GATE0 override);
+    an ABSENT marker is the EFFECTIVE ``drb_ii_idx`` lineage (``resolve_lineage`` normalizes None ->
+    default). Extracting this into a single named helper is FIX D: ``run_one_query``'s resume path AND
+    the caller-level tests both call THIS function, so a regression back to a bare ``q.get(...)`` (which
+    left legacy-stored -> default-run unchecked, because None => no expected lineage) would break the
+    tests instead of silently passing. Pure — no env read, no I/O; the on-disk snapshot stays
+    byte-identical (comparison-only normalization)."""
+    from scripts.dr_benchmark.gate0_lineage import resolve_lineage as _gate0_resolve_lineage
+
+    marker = q.get("question_lineage") if isinstance(q, dict) else None
+    return _gate0_resolve_lineage(marker)
+
+
 def _required_entity_ledger_failed_under_strict(
     strict: bool, ledger_forced_on: bool, ledger_failed: bool
 ) -> bool:
@@ -1922,7 +2074,15 @@ def _required_entity_ledger_failed_under_strict(
     success. Returns True iff the strict guard must convert a would-be success into a loud hold.
     PURE — touches NO faithfulness gate (strict_verify / NLI / 4-role D8 / provenance) and adds
     NO cap/target; it only forbids mislabeling a ledger-failed run as success. Off (no strict
-    gates) OR ledger not forced-on OR ledger succeeded => False => byte-identical fail-soft."""
+    gates) OR ledger not forced-on OR ledger succeeded => False => byte-identical fail-soft.
+
+    STAGE-0 LINEAGE SEAM (FIX 3): a RequiredEntityLedger IMPLEMENTATION failure (build/render/write
+    EXCEPTION) is NOT the native coverage-shortfall decision — it means the honest "Coverage gaps"
+    disclosure could not be PRODUCED at all. That must stay FAIL-LOUD / durably disclosed under
+    EVERY lineage (legacy included), never silently converted to a WARN-only success. So this
+    predicate is lineage-INDEPENDENT (byte-identical to HEAD). The idx-56 coverage-SHORTFALL blocker
+    is made report-only for legacy at the OUTER disposition seam (see the coverage-shortfall-only
+    downgrade near the four-role release-outcome block), NOT here."""
     return bool(strict and ledger_forced_on and ledger_failed)
 
 
@@ -9539,7 +9699,19 @@ async def run_one_query(
             # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
             # the earlier (post-fetch) one only when the later one is absent.
             if _snapshot_path(run_dir).exists():
-                _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+                # STAGE-0 LINEAGE SEAM (FIX 4 — mismatch in BOTH directions): refuse a cross-lineage
+                # frozen-corpus resume. The marker rides on q (legacy-only); an ABSENT marker is the
+                # EFFECTIVE drb_ii_idx lineage — resolve it so a stored LEGACY snapshot is REJECTED
+                # when a later DEFAULT run resumes (legacy-stored -> default-run), the direction the
+                # bare q.get() left unchecked. The default lineage is still OMITTED from serialized
+                # artifacts (corpus_snapshot only stores a legacy marker); this is a comparison-only
+                # normalization, so the on-disk snapshot stays byte-identical to HEAD. FIX D: the
+                # effective-lineage resolution is the ONE named production helper the caller-level
+                # tests also drive, so a regression to a bare q.get() breaks the tests.
+                _resume_payload = _load_corpus_snapshot(
+                    run_dir,
+                    expected_lineage=_resume_effective_lineage(q),
+                )  # raises -> fail loud on corrupt / mismatched lineage
                 _assert_snapshot_question(_resume_payload, "corpus")
                 _resume_active = True
             elif _fetch_snapshot_path(run_dir).exists():
@@ -15827,6 +15999,10 @@ async def run_one_query(
         # (the run still completes; resume just won't be available for it).
         if not _resume_active:
             try:
+                # STAGE-0 LINEAGE SEAM: stamp the LEGACY-ONLY lineage on the snapshot. The marker
+                # rides on q (attached by the GATE0/run_gate_b override); a default (drb_ii_idx) run
+                # has no marker => lineage=None => the snapshot JSON is byte-identical to HEAD.
+                _snap_lineage = q.get("question_lineage")
                 _snap_path = _save_corpus_snapshot(
                     run_dir,
                     run_id=run_id,
@@ -15835,6 +16011,7 @@ async def run_one_query(
                     domain=q.get("domain", ""),
                     evidence_for_gen=evidence_for_gen,
                     retrieval=retrieval,
+                    lineage=_snap_lineage,
                 )
                 _log(f"[checkpoint]  corpus snapshot saved: {_snap_path.name} "
                      f"(evidence_for_gen={len(evidence_for_gen)} rows; --resume re-runs all gates)")
@@ -19532,6 +19709,36 @@ async def run_one_query(
                     if four_role_result.release_allowed
                     else "four_role_held"
                 )
+            # STAGE-0 LINEAGE SEAM (FIX 3 — coverage-shortfall report-only for legacy): the native
+            # required-element coverage denominator is the DRB-II idx-56 rubric. A legacy_race_task
+            # run is scored by RACE task-72, NOT the idx-56 coverage rubric, so the idx-56
+            # coverage-SHORTFALL blocker must be REPORT-ONLY for legacy at this OUTER disposition
+            # seam — never a post-spend HOLD of a task-72 run. Downgrade ONLY when the SOLE blocking
+            # held_reason is the coverage shortfall (set-EQUALITY, never "contains"): a fabrication /
+            # S0-must-cover / pending-rewrite hold, or a zero-grounding hard block (separate fields),
+            # is UNTOUCHED and still HOLDS. FIX A — the disposition helper refuses the downgrade on
+            # ANY ReleaseOutcome hard block (`_release_outcome.hard_block` / `hard_block_reasons`,
+            # e.g. zero-grounding), which lives OUTSIDE held_reasons and the set-equality predicate
+            # cannot see. FIX B — the helper gates on THIS QUERY's own legacy marker
+            # (`q["question_lineage"]`), NOT the process-wide env selector, so a query that was never
+            # legacy-bound is never downgraded even when the selector is set. The coverage fraction /
+            # gaps / required_entity_coverage telemetry below is written unchanged, so the honest gap
+            # is still fully disclosed — SEVERITY-only, no content edit, no faithfulness change. Under
+            # PG_ALWAYS_RELEASE=1 (the Gate-B slate) coverage is ALREADY report-only for every
+            # lineage, so a coverage-only hold does not reach here; this closes the invariant on the
+            # legacy always-release-OFF path. DEFAULT (drb_ii_idx) lineage is byte-identical (the
+            # per-query marker resolves to drb_ii_idx => the helper returns False).
+            summary_status = _apply_legacy_coverage_downgrade(
+                manifest,
+                summary_status,
+                q.get("question_lineage"),
+                bool(getattr(_release_outcome, "released", False)),
+                bool(getattr(_release_outcome, "hard_block", False)),
+                list(getattr(_release_outcome, "hard_block_reasons", []) or []),
+                four_role_result.held_reasons,
+                four_role_result.fabricated_occurrence_latched,
+                log=_log,
+            )
             # Reassign BOTH the summary label AND the unified local so manifest.json,
             # sweep_summary.json (summary["status"] at the function tail), and the status log
             # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
@@ -21909,11 +22116,21 @@ async def main_async() -> int:
     # hardcoded copy had drifted from canonical. Copies each dict so global SWEEP_QUERIES is
     # not mutated. This is the structural fix: the launched question == canonical by construction.
     from scripts.dr_benchmark.gate0_lineage import (
+        LINEAGE_LEGACY_RACE_TASK as _GATE0_LINEAGE_LEGACY,
         SLUG_TO_IDX as _GATE0_SLUG_TO_IDX,
+        SLUG_TO_LEGACY_TASK as _GATE0_SLUG_TO_LEGACY,
         canonical_question_for_slug as _gate0_canonical_q,
+        lineage_from_env as _gate0_lineage_from_env,
+        questions_raw_and_sha_equal as _gate0_raw_and_sha_equal,
         sha256_text as _gate0_sha,
         assert_drb_slug_registered as _gate0_assert_registered,
+        assert_legacy_slug_supported as _gate0_assert_legacy_supported,
     )
+    # STAGE-0 LINEAGE SEAM: consult the SAME selector run_gate_b uses, so a direct
+    # main_async/main sweep binds the SAME lineage — never a second override that re-forces idx-56
+    # (a split brain vs the Gate-B / scorer lineage). Default drb_ii_idx = today's idx override
+    # (byte-identical); legacy_race_task binds the legacy (RACE task) question.
+    _gate0_lineage = _gate0_lineage_from_env()
     _gate0_bound = []
     for _q in queries_to_run:
         _slug = _q.get("slug") if isinstance(_q, dict) else None
@@ -21922,7 +22139,33 @@ async def main_async() -> int:
         # (bare drb_76/drb_78, or drb_90) launched a hardcoded question with NO binding.
         if _slug:
             _gate0_assert_registered(_slug)
-        if isinstance(_q, dict) and _slug in _GATE0_SLUG_TO_IDX:
+            # STAGE-0 LINEAGE SEAM (FIX 1 — no-gold fail-open): under legacy, reject EVERY benchmark
+            # slug with no SLUG_TO_LEGACY_TASK mapping via the SHARED helper — a canonically-mapped
+            # slug AND an explicit no-gold slug (e.g. drb_90_adas_liability) alike. Without this a
+            # no-gold slug misses both legacy branches below and silently launches its DRB-II idx
+            # question = split brain. Same helper Gate-B calls (one legacy-rejection source of truth).
+            if _gate0_lineage == _GATE0_LINEAGE_LEGACY:
+                _gate0_assert_legacy_supported(_slug)
+        if (
+            isinstance(_q, dict)
+            and _gate0_lineage == _GATE0_LINEAGE_LEGACY
+            and _slug in _GATE0_SLUG_TO_LEGACY
+        ):
+            # LEGACY: resolve the legacy (RACE task) canonical and ASSERT the raw registered
+            # question already equals it (a drifted SWEEP question fails loud, never silently
+            # recreates the wrong question), then keep it single-brained. Marker mirrors run_gate_b.
+            # (Any benchmark slug NOT in _GATE0_SLUG_TO_LEGACY already failed loud above.)
+            _legacy_q = _gate0_canonical_q(_slug, lineage=_GATE0_LINEAGE_LEGACY)
+            # RAW-byte AND normalized-SHA equality (v2): SHA-only accepts whitespace drift.
+            if not _gate0_raw_and_sha_equal(_q.get("question", ""), _legacy_q):
+                raise RuntimeError(
+                    f"[GATE0] slug {_slug}: PG_BENCHMARK_QUESTION_LINEAGE=legacy_race_task but the "
+                    f"raw registered SWEEP question != the legacy canonical (query.jsonl id "
+                    f"{_GATE0_SLUG_TO_LEGACY[_slug]}) as RAW bytes — refusing a split-brained "
+                    f"legacy run."
+                )
+            _q = {**_q, "question": _legacy_q, "question_lineage": _GATE0_LINEAGE_LEGACY}
+        elif isinstance(_q, dict) and _slug in _GATE0_SLUG_TO_IDX:
             _canon = _gate0_canonical_q(_slug)
             if _gate0_sha(_q.get("question", "")) != _gate0_sha(_canon):
                 print(

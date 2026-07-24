@@ -28,6 +28,65 @@ ROOT = Path(__file__).resolve().parents[1]
 DRB = ROOT / "third_party" / "deep_research_bench"
 
 
+def assert_legacy_scorer_lineage(report_path: str, prompt: str, task_id: "str | int") -> int:
+    """STAGE-0 LINEAGE SEAM (scorer guard): refuse to score a split-brained legacy run BEFORE spend.
+
+    On the legacy lineage the scored report ANSWERED the LEGACY (RACE task) question, so before any
+    RACE spend this ASSERTS no split brain: the question the run actually answered (read from the
+    run's ``corpus_snapshot`` lineage record) must equal the legacy canonical (``query.jsonl`` id ==
+    ``--task-id``) the RACE harness packs. Returns ``0`` to proceed, ``2`` (BLOCKED) if the answered
+    evidence is missing/unverifiable, and RAISES ``GateZeroLineageError`` on a hard packed/answered/
+    canonical mismatch (raw AND sha). DEFAULT lineage (``drb_ii_idx`` / unset) => a no-op ``0`` —
+    byte-identical to HEAD. Pure + hermetic (no network / no spend), so it is unit-testable.
+    """
+    from scripts.dr_benchmark.gate0_lineage import (
+        LINEAGE_LEGACY_RACE_TASK as _GATE0_LINEAGE_LEGACY,
+        assert_no_split_brain as _gate0_assert_no_split_brain,
+        lineage_from_env as _gate0_lineage_from_env,
+    )
+    if _gate0_lineage_from_env() != _GATE0_LINEAGE_LEGACY:
+        return 0
+    run_dir = Path(report_path).resolve().parent
+    snap_path = run_dir / "corpus_snapshot.json"
+    if not snap_path.is_file():
+        print(
+            f"BLOCKED: legacy_race_task scoring requires the run's answered-question record but "
+            f"no corpus_snapshot.json found at {snap_path} — cannot verify the report answered the "
+            f"legacy question (refusing to score a possibly split-brained run).",
+            file=sys.stderr,
+        )
+        return 2
+    snap = json.loads(snap_path.read_text(encoding="utf-8"))
+    answered_question = snap.get("question")
+    answered_slug = snap.get("slug")
+    stored_lineage = snap.get("lineage")
+    if not answered_question or not answered_slug:
+        print(
+            f"BLOCKED: corpus_snapshot at {snap_path} is missing the answered question/slug — "
+            f"cannot verify the legacy lineage (refusing to score).",
+            file=sys.stderr,
+        )
+        return 2
+    if stored_lineage != _GATE0_LINEAGE_LEGACY:
+        print(
+            f"BLOCKED: legacy_race_task scoring but the run snapshot lineage is "
+            f"{stored_lineage!r} (expected {_GATE0_LINEAGE_LEGACY!r}) — the run did NOT answer the "
+            f"legacy question (refusing to score a split-brained run).",
+            file=sys.stderr,
+        )
+        return 2
+    # packed == the RACE-harness prompt (query.jsonl id==task-id); answered == the run snapshot.
+    # Both must equal the legacy canonical for the slug (raw AND sha), or the score is meaningless.
+    _gate0_assert_no_split_brain(
+        answered_slug, prompt, answered_question, lineage=_GATE0_LINEAGE_LEGACY,
+    )
+    print(
+        f"[race] legacy_race_task split-brain guard PASSED: slug {answered_slug!r} answered "
+        f"== packed (query.jsonl id {task_id}) == legacy canonical."
+    )
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--report", required=True, help="path to report.md")
@@ -54,6 +113,11 @@ def main() -> int:
         return 2
     prompt = task["prompt"]
     lang = task.get("language", "en")
+
+    # STAGE-0 LINEAGE SEAM: on the legacy lineage, refuse to score a split-brained run BEFORE spend.
+    _guard_rc = assert_legacy_scorer_lineage(args.report, prompt, args.task_id)
+    if _guard_rc != 0:
+        return _guard_rc
 
     # Single-task query file so ONLY this task is scored.
     q_path = DRB / f"data/prompt_data/query_task{args.task_id}.jsonl"
