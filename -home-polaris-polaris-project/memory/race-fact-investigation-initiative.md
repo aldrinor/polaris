@@ -100,6 +100,26 @@ per_basket" seam is legacy). NEXT: Sol line-by-line investigation of the V30 slo
 → spec v4 → re-gate → build Stage 1. Re-baseline run is a prerequisite (needs generation budget; OQ-5 "Wave-1 only ~6
 gens" was for the legacy path — may need re-confirm).
 
+**V30-RETARGET INVESTIGATION LANDED + LINEAGE DECISION (2026-07-24, wave1_v30_retarget_verdict.md 711 ln):**
+Findings: (1) V30 report is HYBRID — contract-slot sections PLUS retained legacy-enrichment sections
+(multi_section_generator.py:11467-11489); Wave 1 must cover BOTH. (2) There are ~27 authored/rewrite routes that can
+reach the judged report (Sol §1.5) — narrative gen, regulatory synth (2-4 sent), deterministic slot prose, A1
+fallback, fragment-snap, sibling re-anchor, consolidations, inline regroup, legacy enrichment, M-44/M-47 regen,
+fact-dedup rewrite, repetition guard, global remap, atom replacement, framing/Abstract/Conclusion, suppressors,
+summary-table, post-write redaction/disclosure/final-repetition. (3) The real judged string is the FINAL ON-DISK
+report.md assembled in run_honest_sweep_r3.py (NOT compose_agentic_report_s3gear329.py — that's the legacy compose
+script, not the Gate-B driver). (4) U1 still real (V30 narrative also forbids inference); U12 preamble MOOT on
+Gate-B path (V30 owns headings+one Limitations; remaining=final-render layout+single-Limitations); U14b mostly moot
+on normal narrative (directive exists) — gap=route completion+audit. (5) BLOCKER SURFACED: question/scorer lineage
+mismatch — Gate-B force-answers DRB-II idx-56 (GenAI) but score_report_race.py packs legacy task-72 (4IR); can't
+mix; DRB-II gold file MISSING from checkout. **OPERATOR DECISION 2026-07-24: canonical = TASK-72 (4IR) question +
+V30 writer** => run V30 sweep on task-72 WITHOUT Gate-B's idx-56 override; score score_report_race --task-id 72;
+re-baseline = V30-on + task-72 + AC-off (all Phase 1-4 analysis stays valid; no gold file needed). NEXT: determine
+exact V30+task-72 (no idx-56 override) generation recipe; write spec v4 (V30 hybrid writer, Sol stage map §Retargeted
+Wave-1 stage map, all carried-over charter/canary/exact-binding/complete-route rules); Sol re-gate v4; then
+re-baseline (needs budget go) + build Stage 1. Phase-3 audit's "_compose_section_per_basket = sole producer"
+premise REPLACED by the V30 hybrid dispatch.
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
