@@ -181,6 +181,13 @@ obligation-and-role pair. **[F]** confirm the component reads content from the c
 **Stop [S+F].** Any literal / magic-count / adjective-name finding, or any held-out deterministic-test failure,
 blocks the wave. No "temporary" literals. **[S] There is no RACE probe for a fix that fails this gate.**
 
+> ⚠️ **VOID — see §12 ROLLBACK (2026-07-24).** The "Licensed-inference admission (the U1 canary)" clause below —
+> a RUNTIME pre-producer admission gate with "premise claim IDs + permitted reasoning operator" — was a Sol
+> escalation that CONTRADICTS Fable's own rule in this same section ("No new entailment/NLI machinery anywhere").
+> It is the seed of a faithfulness-ghost / post-generation apparatus and is DISCARDED. U1 reverts to the clean
+> Phase-3 form: a PRE-GENERATION prompt change + a deterministic zero-new-number TEST (not a runtime gate),
+> relying on the EXISTING faithfulness engine. See `PIPELINE_GAP_AUDIT.md` U1 and §12 below.
+
 ### C2 — FAITHFULNESS FIREWALL — [S A2] + [F R2]
 
 - **[S+F] Untouchable set:** `provenance_generator.py` (rewrite + citation resolution `:3714-3943`,`:4637-5252`)
@@ -647,3 +654,45 @@ LIVE BENCHMARK PATH". **Operator decision: the canonical scoreboard is Gate-B / 
 4. **Phase-3 PIPELINE_GAP_AUDIT needs a V30 re-map** (its "active producer" seam is legacy-path).
 NEXT: Sol line-by-line investigation of the V30 slot writer → retargeted Wave-1 seam map → spec v4 → re-gate →
 build Stage 1. Re-baseline generation run is a prerequisite.
+
+---
+
+## 12. ROLLBACK — Phase 4 re-run under a NO-GHOST charter (operator decision 2026-07-24)
+
+**Why.** The Wave-1 build (specs v1–v4 + Stage-1, gated by Sol SOLO) drifted into exactly the banned pattern: a
+runtime `LicensedInference` **admission canary**, an `OPERATOR_LICENSE` **entailment predicate** "proving" an
+inference is premise-licensed, `PremiseRelation` records, **exact emitted==admitted binding audits across ~27
+rewrite routes**, and **non-scoreable-on-mismatch** report suppression. That is the faithfulness-ghost /
+post-generation-fix / content-drop family the operator has HARD-BANNED (it cost months and damages RACE). The seed
+entered in Phase-4 C2 (Sol's "admission canary… permitted reasoning operator" language, which I consolidated
+alongside — and in contradiction to — Fable's "No new entailment/NLI machinery anywhere"); Sol-solo build gates
+then inflated it.
+
+**Rollback (operator-directed).**
+- **KEEP (clean, both-gated, generalized, no overfit):** Phase 1 (SCORING_SPEC), Phase 2 (COMPETITOR_TEARDOWN),
+  Phase 3 (PIPELINE_GAP_AUDIT — pre-generation fixes + deterministic TESTS). PLUS the VALID architecture facts:
+  the active writer is the V30/Gate-B slot narrative path; canonical question = legacy task-72 (4IR); the champion
+  must be re-baselined V30-on/task-72 (mf_baseline 0.5009 was V30-off). See §11 and `phase4_v30_retarget_verdict.md`.
+- **DISCARD:** C2's runtime admission-canary clause (VOID, flagged above); Wave-1 specs v1–v4 + Stage-1 spec; the
+  entire AnalyticalContract / canary / exact-binding / 27-route-audit apparatus.
+- **REDO — re-run Phase 4** to turn the clean Phase-3 gaps into a V30-targeted MASTER plan under a HARD NO-GHOST
+  charter, gated by **BOTH Fable and Sol** (two-model discipline restored — Fable authored "no entailment
+  machinery" and is the counterweight Sol-solo lacked). Hard constraints every design must satisfy:
+  1. NO entailment/NLI/faith-ghost machinery of any kind.
+  2. NO post-generation content edit or content-drop/suppression gate (layout-only whitespace/heading
+     normalization, provably content-preserving, is the sole exception).
+  3. NO runtime admission gate / licensed-inference admission / premise-relation license / operator-license
+     predicate / exact-emitted==admitted binding audit / non-scoreable-on-mismatch.
+  4. Fixes are PRE-GENERATION prompt / scope-contract changes ONLY, reaching the ACTIVE V30 writer, relying on the
+     EXISTING faithfulness engine untouched.
+  5. Deterministic checks are TESTS that gate a lever's SHIP decision — never runtime content gates.
+  6. If a gap cannot be fixed cleanly pre-generation → DROP THE LEVER. No machinery.
+  7. No overfit / task-domain literals / magic counts / adjective-version flag names.
+  8. Retargeted to the V30 slot writer + task-72; measure-first (establish the real V30-on/task-72 baseline before
+     any lever).
+- **THEN build** per the corrected plan, each small pre-gen change gated by both models, measured against the real
+  V30-on/task-72 baseline.
+
+The five Sol Wave-1 gate rounds are retained in scratchpad as a cautionary record; their VALID output (the V30
+architecture map, the champion-invalidity finding, the question-lineage discovery) is preserved above and in
+`phase4_v30_retarget_verdict.md`.
