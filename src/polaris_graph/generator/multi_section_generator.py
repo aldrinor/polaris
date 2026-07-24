@@ -3759,7 +3759,11 @@ _BASKET_SYNTHESIS_DIRECTIVE = (
 
 _NARRATIVE_ATTRIBUTION_DIRECTIVE = (
     "NARRATIVE SOURCE ATTRIBUTION: When source_metadata supplies an author, venue, or year, carry "
-    "the available real metadata into normal scholarly prose. Never invent a missing field. Use "
+    "the available real metadata into normal scholarly prose. Name the author, venue, or year at a "
+    "source's FIRST mention in a section, then use a short form for later mentions of the same "
+    "source. Never invent a "
+    "missing field — attribute only what source_metadata actually provides, and if it provides none "
+    "for a source, cite it by its [ev_XXX] marker alone. Use "
     "prominence_weight continuously to decide which source to foreground; lower-weight sources "
     "remain available and should still be used where their evidence supports the synthesis. Keep "
     "the required [ev_XXX] marker on every factual unit."
