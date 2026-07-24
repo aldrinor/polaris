@@ -116,6 +116,7 @@ from src.polaris_graph.roles.openrouter_role_transport import (
     _family_from_slug,
     benchmark_verifier_family,
     benchmark_verifier_lineup,
+    benchmark_verifier_slug,
     openrouter_base_url,
     role_reasoning_enabled,
 )
@@ -298,11 +299,14 @@ def assert_four_role_families_distinct() -> dict[str, str]:
             lock["required_roles"]["generator"]["model_slug"]
         )
         fams = {"generator": _family_from_slug(generator_slug)}
+        slugs = {"generator": generator_slug}
         for role in _VERIFIER_ROLES:
             fams[role] = benchmark_verifier_family(role)
+            slugs[role] = benchmark_verifier_slug(role)
     else:
         roles = ("generator", *_VERIFIER_ROLES)
         fams = {r: str(lock["required_roles"][r]["family"]) for r in roles}
+        slugs = {r: str(lock["required_roles"][r]["model_slug"]) for r in roles}
     # I-beatboth-008 (#1285): honor the lock's family_policy.allowed_collisions instead of a
     # bare set-length distinctness check. On the all-GLM-5.2 stack the openrouter branch passes
     # only by LABEL MISMATCH — the generator's family is sourced from the lock ('glm') while the
@@ -328,6 +332,31 @@ def assert_four_role_families_distinct() -> dict[str, str]:
                 f"allowed_collisions={sorted(allowed)}"
             )
         seen[fam] = role
+    # CANONICAL-LINEAGE guard (I-judge alias fix): the provider-prefix check above misses a
+    # canonical-alias collision — e.g. generator `moonshotai/kimi-k3` vs Judge `moonshot/kimi-k2.6`
+    # carry DISTINCT prefixes but the SAME training lineage `kimi`, a real self-verify collision that
+    # a prefix-only check lets pass. Run the SAME allowed_collisions distinctness over the CANONICAL
+    # family (`openrouter_client.family_from_model`, which folds moonshotai/==moonshot/==kimi/->kimi and
+    # z-ai/==zhipuai/==thudm/->glm). allowed_collisions are role PAIRS (not family labels), so they
+    # apply unchanged. This makes a legitimate distinct-family override (Judge deepseek for a kimi
+    # generator) pass while an alias re-pick fails loud. `unknown` lineage is left to the prefix guard.
+    from src.polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
+    canon = {role: family_from_model(str(slug)) for role, slug in slugs.items()}
+    seen_canon: dict[str, str] = {}
+    for role, fam in canon.items():
+        if fam == "unknown":
+            continue
+        if fam in seen_canon:
+            other_role = seen_canon[fam]
+            if tuple(sorted([role, other_role])) in allowed:
+                continue
+            raise RuntimeError(
+                "Gate-B preflight: 4-role CANONICAL-lineage collision — roles must be distinct "
+                f"training lineages (got canonical {canon} from slugs {slugs}); role {role!r} and "
+                f"role {other_role!r} share lineage {fam!r} and the pair is not in "
+                f"allowed_collisions={sorted(allowed)}"
+            )
+        seen_canon[fam] = role
     return fams
 
 

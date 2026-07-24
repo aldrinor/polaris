@@ -234,13 +234,10 @@ _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
     "mirror": "z-ai",
     # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
     "sentinel": "minimax",
-    # I-judge-kimi (2026-06-29): Judge swapped qwen -> moonshotai/kimi-k2.6, so its provider-prefix
-    # family lane is now `moonshotai` (the EXPECTED lane benchmark_verifier_family asserts the active
-    # slug stays within). `moonshotai` is a NEW DISTINCT lane: it does NOT collide with generator+
-    # mirror (`z-ai`, the lock's allowed-collision pair) or the Sentinel (`minimax`), so the 4-distinct
-    # invariant (run_gate_b.assert_four_role_families_distinct) still holds with the Judge alone in
-    # `moonshotai`. The family registry (openrouter_client._FAMILY_PREFIXES) already maps moonshotai/
-    # -> the `kimi` lineage, so a lock reconciliation to family `kimi` would also validate cleanly.
+    # I-judge-kimi (2026-06-29): Judge default moonshotai/kimi-k2.6 -> provider-prefix lane `moonshotai`.
+    # It does NOT (prefix-)collide with generator+mirror (`z-ai`, the lock's allowed-collision pair) or
+    # the Sentinel (`minimax`), so the 4-distinct invariant holds. Canonical-alias safety (moonshotai vs
+    # moonshot both -> kimi) is enforced by the SECOND canonical guard in assert_four_role_families_distinct.
     "judge": "moonshotai",
 }
 
@@ -251,6 +248,11 @@ def _family_from_slug(slug: str) -> str:
     Every OpenRouter slug is `provider/model`; the provider prefix IS the family lineage the
     4-distinct-family invariant is asserted over (z-ai / ibm-granite / qwen / deepseek). A slug
     with no `/` cannot have its family determined — raise rather than guess (LAW II fail-loud).
+
+    NOTE: the provider prefix is a LABEL, not the canonical training lineage; a canonical-alias
+    re-pick (e.g. `moonshot/` vs `moonshotai/`, both lineage `kimi`) would share a lineage while
+    carrying distinct prefixes. `assert_four_role_families_distinct` closes that hole with a SECOND,
+    canonical guard (via `openrouter_client.family_from_model`) — see run_gate_b.py.
     """
     provider, sep, _ = slug.partition("/")
     if not sep or not provider:
@@ -315,15 +317,26 @@ def benchmark_verifier_family(role: str) -> str:
             f"role {role!r} is not a benchmark-stage verifier role {_SERVED_ROLES}"
         )
     active_family = _family_from_slug(benchmark_verifier_slug(role))
-    expected_family = _BENCHMARK_VERIFIER_DEFAULT_FAMILY[role]
-    if active_family != expected_family:
-        raise ValueError(
-            f"benchmark verifier role {role!r}: active slug family {active_family!r} (from "
-            f"{_BENCHMARK_LINEUP_ENV[role]}={benchmark_verifier_slug(role)!r}) leaves the "
-            f"expected lane {expected_family!r}. A cross-family re-pick risks a self-verify "
-            f"collision with another role (CLAUDE.md §9.1, all_distinct); fix the override or "
-            f"update the lineup default (fail-closed)."
-        )
+    # An EXPLICIT operator override (`PG_<ROLE>_MODEL` set in the env) is HONORED as its own lane:
+    # the operator deliberately chose the slug, and the downstream 4-distinct-family invariant
+    # (`run_gate_b.assert_four_role_families_distinct`, computed over these ACTIVE families) is what
+    # actually guards role independence — an override that collides with ANOTHER role's active family
+    # is still caught there, LOUD (naming the colliding roles). The hardcoded-lane check below is kept
+    # ONLY for the NON-overridden DEFAULT (stale-static-map protection): if a future default-slug edit
+    # drifts a role out of its expected lane while the static family map lags, fail loud. This lets a
+    # legitimate distinct-family judge re-pick (e.g. PG_BENCHMARK_JUDGE_MODEL=deepseek/... to avoid a
+    # generator/judge same-family collision when the generator is itself moonshotai/kimi) run without
+    # weakening independence — the all-distinct gate still enforces it.
+    if os.getenv(_BENCHMARK_LINEUP_ENV[role]) is None:
+        expected_family = _BENCHMARK_VERIFIER_DEFAULT_FAMILY[role]
+        if active_family != expected_family:
+            raise ValueError(
+                f"benchmark verifier role {role!r}: active slug family {active_family!r} (from "
+                f"{_BENCHMARK_LINEUP_ENV[role]}={benchmark_verifier_slug(role)!r}) leaves the "
+                f"expected lane {expected_family!r}. A cross-family re-pick risks a self-verify "
+                f"collision with another role (CLAUDE.md §9.1, all_distinct); fix the override or "
+                f"update the lineup default (fail-closed)."
+            )
     return active_family
 
 
@@ -1449,6 +1462,17 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
                 verdict_budget = 16384
             if verdict_budget <= 0:
                 verdict_budget = 16384
+            # MODEL-AWARE anti-starvation floor: the 16384 default is tuned to Kimi's LOWEST endpoint
+            # cap (DeepInfra 16384) so all 21 kimi providers stay in the load-balance. A NON-Kimi Judge
+            # (e.g. deepseek/deepseek-v4-pro, whose reasoning burns ~17-18k tokens before content —
+            # openrouter_client.py:2040-2065) STARVES the bare verdict to empty at 16384. When the Judge
+            # is NOT Kimi AND the operator did not explicitly set PG_D8_VERDICT_MAX_TOKENS, floor the
+            # budget at 32768 (still << the 262144 chain ceiling; deepseek serves 393216 max_completion
+            # on Novita). Kimi / any explicit override => byte-identical to HEAD.
+            if os.getenv("PG_D8_VERDICT_MAX_TOKENS") is None:
+                from src.polaris_graph.llm.openrouter_client import family_from_model  # noqa: PLC0415
+                if family_from_model(model_slug) != "kimi":
+                    verdict_budget = max(verdict_budget, 32768)
             body["max_tokens"] = min(verdict_budget, _JUDGE_MAX_TOKENS_CHAIN_MIN)
     else:
         # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
